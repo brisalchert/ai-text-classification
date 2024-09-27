@@ -10,13 +10,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
+import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import nltk
 nltk.download('stopwords')
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 from nltk.probability import FreqDist
-from sklearn.feature_extraction.text import TfidfVectorizer
 import re
 
 # Load dataset from csv
@@ -64,7 +64,18 @@ stop_words = set(stopwords.words('english'))
 stemmer = PorterStemmer()
 
 def preprocess_essays(essays):
+    """
+    Preprocesses the list of essays using:
+    - Tokenization
+    - Stopword removal
+    - Stemming
+    - Rare word removal
+    - Word to index mapping for building vocabulary
+    :param essays: the list of essays to preprocess.
+    :return: processed essays as lists of tokens and the vocab list.
+    """
     processed_essays = []
+    vocab = set()
     for essay in essays:
         # Tokenize the essay
         tokens = tokenizer(essay)
@@ -76,7 +87,37 @@ def preprocess_essays(essays):
         freq_dist = FreqDist(tokens)
         threshold = 2
         tokens = [token for token in tokens if freq_dist[token] > threshold]
-        processed_essays.append(' '.join(tokens))
-    return processed_essays
+        # Add tokens to list of processed essays
+        processed_essays.append(tokens)
+        # Add new words to vocab
+        for token in tokens:
+            vocab.add(token)
+    return processed_essays, vocab
 
-print(preprocess_essays(ai_human_df.iloc[:10, 0]))
+def map_vocab(processed_essays, vocab):
+    vocab_size = len(vocab)
+    essay_tensors = []
+    # Create word to index mapping for the vocabulary
+    word_to_idx = {word: i for i, word in enumerate(vocab)}
+    # Convert essay tokens to vocab indices
+    for essay in processed_essays:
+        essay_tensors.append(torch.LongTensor([word_to_idx[w] for w in essay]))
+    return essay_tensors, vocab_size
+
+# Create Dataset class for essays
+class EssayDataset(Dataset):
+    def __init__(self, text):
+        self.text = text
+    def __len__(self):
+        return len(self.text)
+    def __getitem__(self, idx):
+        return self.text[idx]
+
+tokens, vocab = preprocess_essays(ai_human_df.iloc[:8, 0])
+tensors, vocab_size = map_vocab(tokens, vocab)
+
+print(vocab_size)
+print(tensors[0])
+embedding = nn.Embedding(num_embeddings=vocab_size, embedding_dim=50)
+
+print(embedding(tensors[0]))
