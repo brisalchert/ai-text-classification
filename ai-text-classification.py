@@ -58,8 +58,25 @@ def get_tokenizer():
 
     return _basic_english_normalize
 
-# Initialize tokenizer
+# Initialize tokenizer, stop words, and stemmer
 tokenizer = get_tokenizer()
+stop_words = set(stopwords.words('english'))
+stemmer = PorterStemmer()
 
-text = ["This is a basic english sentence."]
-print(tokenizer(text[0]))
+def preprocess_essays(essays):
+    processed_essays = []
+    for essay in essays:
+        # Tokenize the essay
+        tokens = tokenizer(essay)
+        # Remove all stopwords
+        tokens = [token for token in tokens if token not in stop_words]
+        # Stem remaining words
+        tokens = [stemmer.stem(token) for token in tokens]
+        # Remove rare words
+        freq_dist = FreqDist(tokens)
+        threshold = 2
+        tokens = [token for token in tokens if freq_dist[token] > threshold]
+        processed_essays.append(' '.join(tokens))
+    return processed_essays
+
+print(preprocess_essays(ai_human_df.iloc[:10, 0]))
