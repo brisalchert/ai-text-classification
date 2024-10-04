@@ -5,7 +5,6 @@
 #-----------------------------------------------------------------------------------------------------------------------
 
 # Import packages
-import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -19,6 +18,7 @@ from nltk.stem import PorterStemmer
 from nltk.probability import FreqDist
 import re
 from tqdm import tqdm
+import time
 
 # Load dataset from csv
 ai_human_df = pd.read_csv('ai_human.csv')
@@ -27,15 +27,15 @@ ai_human_df = pd.read_csv('ai_human.csv')
 ai_human_df['generated'] = ai_human_df['generated'].astype(int)
 
 # Preview data
-# print(ai_human_df.head())
-# print(ai_human_df.info())
+print(ai_human_df.head())
+print(ai_human_df.info())
 
 # Visualize distribution of data
-# sns.countplot(x=ai_human_df['generated'])
-# plt.title('Class Distribution')
-# plt.xlabel('Class')
-# plt.ylabel('Count')
-# plt.show()
+sns.countplot(x=ai_human_df['generated'])
+plt.title('Class Distribution')
+plt.xlabel('Class')
+plt.ylabel('Count')
+plt.show()
 
 def get_tokenizer():
     """
@@ -127,48 +127,173 @@ class EssayDataset(Dataset):
         return self.essays.iloc[idx], self.labels.iloc[idx]
 
 # Set device to CUDA GPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def collate_batch(batch):
-    text_list, label_list, offsets = [], [], [0]
+    text_list, label_list = [], []
     for _text, _label in batch:
         # Append label (no processing necessary)
         label_list.append(_label)
         # Process and append text
         processed_text = torch.tensor(_text, dtype=torch.int64)
         text_list.append(processed_text)
-        offsets.append(processed_text.size(0))
     label_list = torch.tensor(label_list, dtype=torch.int64)
-    offsets = torch.tensor(offsets[:-1]).cumsum(dim=0)
     text_list = torch.cat(text_list)
-    return text_list.to(device), label_list.to(device), offsets.to(device)
+    return text_list.to(device), label_list.to(device)
 
 # Generate sample from data
 sample_df = ai_human_df.sample(n=10000, random_state=42)
 
 # Process essays and generate vocab
 sample_df['text'], vocab = essay_processing_pipeline(sample_df['text'])
-vocab_size = len(vocab)
 
 # Create dataset for preprocessed data
 essay_dataset = EssayDataset(sample_df)
 
-split_train, split_valid = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
-train_dataloader = DataLoader(split_train, batch_size=16, shuffle=True, collate_fn=collate_batch)
+class EssayLSTM(nn.Module):
+    def __init__(self, vocab_size, embed_dim, hidden_size, num_layers, num_classes):
+        super(EssayLSTM, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.embedding = nn.Embedding(vocab_size, embed_dim, sparse=False)
+        self.lstm = nn.LSTM(embed_dim, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, num_classes)
+        self.relu = nn.ReLU()
 
-train_features, train_labels, train_offsets = next(iter(train_dataloader))
-print(f"Feature batch shape: {train_features.size()}")
-print(f"Labels batch shape: {train_labels.size()}")
-print(f"Offsets batch shape: {train_offsets.size()}")
+    def forward(self, essay):
+        embedded = self.embedding(essay)
+        h0 = torch.zeros(self.num_layers, self.hidden_size, device=device)
+        c0 = torch.zeros(self.num_layers, self.hidden_size, device=device)
+        # Propagate embeddings through LSTM layer
+        out, (hn, cn) = self.lstm(embedded, (h0, c0))
+        hn = hn.view(-1, self.hidden_size) # Reshape for following Dense layer
+        out = self.relu(hn)
+        out = self.fc(out)
+        return out
 
-for i in range(len(train_labels)):
-    if i < 15:
-        print("Features: " + str(train_features[train_offsets[i]:train_offsets[i + 1]]))
+def train(dataloader, loss_criterion, optimizer):
+    model.train()
+    total_acc, total_count = 0, 0
+    running_train_loss, running_train_acc = 0, 0
+    log_interval = 500
+    start_time = time.time()
+
+    for idx, (text, label) in enumerate(dataloader):
+        optimizer.zero_grad()
+        predicted_label = model(text)
+        loss = loss_criterion(predicted_label, label)
+        running_train_loss += loss.item()
+        loss.backward()
+        # Clip to avoid exploding gradient
+        nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.1)
+        optimizer.step()
+        total_acc += (predicted_label.argmax(1) == label).sum().item()
+        running_train_acc += (predicted_label.argmax(1) == label).sum().item()
+        total_count += label.size(0)
+        if idx % log_interval == 0 and idx > 0:
+            elapsed = time.time() - start_time
+            print(
+                '| epoch {:3d} | {:5d}/{:5d} batches '
+                '| accuracy {:8.3f} '
+                '| time {:8.3f}s |'.format(
+                    epoch, idx, len(dataloader), total_acc / total_count, elapsed
+                )
+            )
+            total_acc, total_count = 0, 0
+            start_time = time.time()
+
+    avg_train_loss = running_train_loss / len(dataloader)
+    avg_train_acc = running_train_acc / len(dataloader)
+    return avg_train_loss, avg_train_acc
+
+def evaluate(dataloader, loss_criterion):
+    model.eval()
+    running_val_loss, running_val_acc = 0, 0
+
+    with torch.no_grad():
+        for idx, (text, label) in enumerate(dataloader):
+            predicted_label = model(text)
+            loss = loss_criterion(predicted_label, label)
+            running_val_loss += loss.item()
+            running_val_acc += (predicted_label.argmax(1) == label).sum().item()
+    avg_val_loss = running_val_loss / len(dataloader)
+    avg_val_acc = running_val_acc / len(dataloader)
+    return avg_val_loss, avg_val_acc
+
+# Split data and create DataLoaders
+split_train, split_test = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
+train_dataloader = DataLoader(split_train, batch_size=1, shuffle=True, collate_fn=collate_batch)
+test_dataloader = DataLoader(split_test, batch_size=1, shuffle=True, collate_fn=collate_batch)
+
+# Define number of epochs and initial learning rate
+num_epochs = 10
+learning_rate = 0.1
+
+# Set model parameters
+num_class = len(set([label for (text, label) in split_train]))
+vocab_size = len(vocab)
+embed_size = 64
+hidden_size = 2
+num_layers = 1
+
+# Initialize the model
+model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, num_class)
+model.to(device)
+
+# Initialize loss function, optimizer, and learning rate scheduler
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.1)
+
+total_accu = None
+
+train_losses = []
+train_accs = []
+val_losses = []
+val_accs = []
+
+for epoch in range(1, num_epochs + 1):
+    epoch_start_time = time.time()
+    # Train model
+    current_train_loss, current_train_acc = train(train_dataloader, criterion, optimizer)
+    current_val_loss, current_val_acc = evaluate(test_dataloader, criterion)
+
+    train_losses.append(current_train_loss)
+    train_accs.append(current_train_acc)
+    val_losses.append(current_val_loss)
+    val_accs.append(current_val_acc)
+
+    # Step the learning rate scheduler for every epoch the accuracy decreases
+    if total_accu is not None and total_accu > current_val_acc:
+        scheduler.step()
     else:
-        print("Features: " + str(train_features[train_offsets[i]:]))
+        total_accu = current_val_acc
 
-    print("Label: " + str(train_labels[i]))
+    # Print epoch statistics with validation accuracy
+    print('-' * 72)
+    print(
+        '| end of epoch {:3d} | time: {:5.2f}s | '
+        'validation accuracy {:8.3f}       |'.format(
+            epoch, time.time() - epoch_start_time, current_val_acc
+        )
+    )
+    print('-' * 72)
 
-# embedding = nn.Embedding(num_embeddings=vocab_size, embedding_dim=50)
-# Use nn.EmbeddingBag with all the tensors concatenated as a single tensor
-# to avoid issues with non-matching tensor dimensions for batches
+# Plot accuracy and loss for training and validation
+fig, ax = plt.subplots(2, 2, sharex=True, sharey=True)
+fig.suptitle('Model statistics')
+ax[0, 0].set_ylim(0,1)
+
+sns.lineplot(ax=ax[0, 0], data=train_losses)
+ax[0, 0].set_title('Training Loss')
+
+sns.lineplot(ax=ax[0, 1], data=train_accs)
+ax[0, 1].set_title('Training Accuracy')
+
+sns.lineplot(ax=ax[1, 0], data=val_losses)
+ax[1, 0].set_title('Validation Loss')
+
+sns.lineplot(ax=ax[1, 1], data=val_accs)
+ax[1, 1].set_title('Validation Accuracy')
+
+plt.show()
