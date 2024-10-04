@@ -250,8 +250,11 @@ num_layers = 1
 model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, num_class)
 model.to(device)
 
+# Initialize weights for cross entropy loss [weight = (total / (num_per_class * num_classes))]
+weights = torch.tensor([(487235 / (305797 * 2)), (487235 / (181438 * 2))]).to(device)
+
 # Initialize loss function, optimizer, and learning rate scheduler
-criterion = nn.CrossEntropyLoss()
+criterion = nn.CrossEntropyLoss(weight=weights)
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.1)
 
