@@ -11,6 +11,7 @@ import seaborn as sns
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, random_split
+from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
 import nltk
 nltk.download('stopwords')
 from nltk.corpus import stopwords
@@ -138,34 +139,31 @@ def collate_batch(batch):
         processed_text = torch.tensor(_text, dtype=torch.int64)
         text_list.append(processed_text)
     label_list = torch.tensor(label_list, dtype=torch.int64)
-    text_list = torch.cat(text_list)
-    return text_list.to(device), label_list.to(device)
-
-# Generate sample from data
-sample_df = ai_human_df.sample(n=10000, random_state=42)
-
-# Process essays and generate vocab
-sample_df['text'], vocab = essay_processing_pipeline(sample_df['text'])
-
-# Create dataset for preprocessed data
-essay_dataset = EssayDataset(sample_df)
+    # Pad tensors so that batch elements are equal length
+    padded_sequences = pad_sequence(text_list, batch_first=True, padding_value=0)
+    sequence_lengths = torch.tensor([len(text) for text in text_list])
+    # Send tensors to GPU
+    return padded_sequences.to(device), sequence_lengths.to('cpu'), label_list.to(device) # lengths must be on CPU
 
 class EssayLSTM(nn.Module):
     def __init__(self, vocab_size, embed_dim, hidden_size, num_layers, num_classes):
         super(EssayLSTM, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.embedding = nn.Embedding(vocab_size, embed_dim, sparse=False)
+        self.embedding = nn.Embedding(vocab_size, embed_dim, sparse=False, padding_idx=0)
         self.lstm = nn.LSTM(embed_dim, hidden_size, num_layers, batch_first=True)
         self.fc = nn.Linear(hidden_size, num_classes)
         self.relu = nn.ReLU()
 
-    def forward(self, essay):
-        embedded = self.embedding(essay)
-        h0 = torch.zeros(self.num_layers, self.hidden_size, device=device)
-        c0 = torch.zeros(self.num_layers, self.hidden_size, device=device)
+    def forward(self, sequences, lengths):
+        # Perform embedding
+        embedded = self.embedding(sequences)
+        h0 = torch.zeros(self.num_layers, embedded.size(0), self.hidden_size, device=device)
+        c0 = torch.zeros(self.num_layers, embedded.size(0), self.hidden_size, device=device)
+        # Pack the embedded sequences
+        packed = pack_padded_sequence(embedded, lengths, batch_first=True, enforce_sorted=False)
         # Propagate embeddings through LSTM layer
-        out, (hn, cn) = self.lstm(embedded, (h0, c0))
+        out, (hn, cn) = self.lstm(packed, (h0, c0))
         hn = hn.view(-1, self.hidden_size) # Reshape for following Dense layer
         out = self.relu(hn)
         out = self.fc(out)
@@ -178,9 +176,9 @@ def train(dataloader, loss_criterion, optimizer):
     log_interval = 500
     start_time = time.time()
 
-    for idx, (text, label) in enumerate(dataloader):
+    for idx, (text, lengths, label) in enumerate(dataloader):
         optimizer.zero_grad()
-        predicted_label = model(text)
+        predicted_label = model(text, lengths)
         loss = loss_criterion(predicted_label, label)
         running_train_loss += loss.item()
         loss.backward()
@@ -202,8 +200,8 @@ def train(dataloader, loss_criterion, optimizer):
             total_acc, total_count = 0, 0
             start_time = time.time()
 
-    avg_train_loss = running_train_loss / len(dataloader)
-    avg_train_acc = running_train_acc / len(dataloader)
+    avg_train_loss = running_train_loss / (len(dataloader) * dataloader.batch_size)
+    avg_train_acc = running_train_acc / (len(dataloader) * dataloader.batch_size)
     return avg_train_loss, avg_train_acc
 
 def evaluate(dataloader, loss_criterion):
@@ -211,19 +209,31 @@ def evaluate(dataloader, loss_criterion):
     running_val_loss, running_val_acc = 0, 0
 
     with torch.no_grad():
-        for idx, (text, label) in enumerate(dataloader):
-            predicted_label = model(text)
+        for idx, (text, lengths, label) in enumerate(dataloader):
+            predicted_label = model(text, lengths)
             loss = loss_criterion(predicted_label, label)
             running_val_loss += loss.item()
             running_val_acc += (predicted_label.argmax(1) == label).sum().item()
-    avg_val_loss = running_val_loss / len(dataloader)
-    avg_val_acc = running_val_acc / len(dataloader)
+    avg_val_loss = running_val_loss / (len(dataloader) * dataloader.batch_size)
+    avg_val_acc = running_val_acc / (len(dataloader) * dataloader.batch_size)
     return avg_val_loss, avg_val_acc
+
+# Generate sample from data
+sample_df = ai_human_df.sample(n=10000, random_state=42)
+
+# Process essays and generate vocab
+sample_df['text'], vocab = essay_processing_pipeline(sample_df['text'])
+
+# Create dataset for preprocessed data
+essay_dataset = EssayDataset(sample_df)
+
+# Set the batch size
+batch_size = 4
 
 # Split data and create DataLoaders
 split_train, split_test = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
-train_dataloader = DataLoader(split_train, batch_size=1, shuffle=True, collate_fn=collate_batch)
-test_dataloader = DataLoader(split_test, batch_size=1, shuffle=True, collate_fn=collate_batch)
+train_dataloader = DataLoader(split_train, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
+test_dataloader = DataLoader(split_test, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
 
 # Define number of epochs and initial learning rate
 num_epochs = 10
@@ -297,3 +307,19 @@ sns.lineplot(ax=ax[1, 1], data=val_accs)
 ax[1, 1].set_title('Validation Accuracy')
 
 plt.show()
+
+# gen_essay_label = {0: 'human-generated', 1: 'AI-generated'}
+#
+# def predict(essay, essay_pipeline):
+#     with torch.no_grad():
+#         text, _ = essay_pipeline(essay)
+#         text = torch.tensor(text)
+#         output = model(text)
+#         return output.argmax(1).item()
+#
+# ex_text_str = ai_human_df.sample(n=1)
+# print('Actual label: ' + gen_essay_label[ex_text_str.iloc[0, 1]])
+#
+# model = model.to('cpu')
+#
+# print('This text is %s.' % gen_essay_label[predict(ex_text_str, essay_processing_pipeline)])
