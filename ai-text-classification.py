@@ -188,13 +188,13 @@ def train(dataloader, loss_criterion, optimizer):
         total_acc += (predicted_label.argmax(1) == label).sum().item()
         running_train_acc += (predicted_label.argmax(1) == label).sum().item()
         total_count += label.size(0)
-        if idx % log_interval == 0 and idx > 0:
+        if (idx + 1) % log_interval == 0 and idx > 0:
             elapsed = time.time() - start_time
             print(
                 '| epoch {:3d} | {:5d}/{:5d} batches '
                 '| accuracy {:8.3f} '
                 '| time {:8.3f}s |'.format(
-                    epoch, idx, len(dataloader), total_acc / total_count, elapsed
+                    epoch, (idx + 1), len(dataloader), total_acc / total_count, elapsed
                 )
             )
             total_acc, total_count = 0, 0
@@ -207,6 +207,8 @@ def train(dataloader, loss_criterion, optimizer):
 def evaluate(dataloader, loss_criterion):
     model.eval()
     running_val_loss, running_val_acc = 0, 0
+    true_labels = []
+    predicted_labels = []
 
     with torch.no_grad():
         for idx, (text, lengths, label) in enumerate(dataloader):
@@ -214,9 +216,26 @@ def evaluate(dataloader, loss_criterion):
             loss = loss_criterion(predicted_label, label)
             running_val_loss += loss.item()
             running_val_acc += (predicted_label.argmax(1) == label).sum().item()
+            # Add true and predicted labels to lists
+            true_labels.append(label)
+            predicted_labels.append(predicted_label.argmax(1))
+
+    # Convert true and predicted label lists to tensors
+    true_labels = torch.cat(true_labels, dim=0)
+    predicted_labels = torch.cat(predicted_labels, dim=0)
+
+    # Calculate confusion matrix values for precision, recall, and F1 score
+    true_positives = ((true_labels == 1) & (predicted_labels == 1)).sum().item()
+    false_positives = ((true_labels == 0) & (predicted_labels == 1)).sum().item()
+    false_negatives = ((true_labels == 1) & (predicted_labels == 0)).sum().item()
+
+    precision = true_positives / (true_positives + false_positives) if true_positives + false_positives > 0 else 0
+    recall = true_positives / (true_positives + false_negatives) if true_positives + false_negatives > 0 else 0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0
+
     avg_val_loss = running_val_loss / (len(dataloader) * dataloader.batch_size)
     avg_val_acc = running_val_acc / (len(dataloader) * dataloader.batch_size)
-    return avg_val_loss, avg_val_acc
+    return avg_val_loss, avg_val_acc, precision, recall, f1
 
 # Generate sample from data
 sample_df = ai_human_df.sample(n=10000, random_state=42)
@@ -236,8 +255,8 @@ train_dataloader = DataLoader(split_train, batch_size=batch_size, shuffle=True, 
 test_dataloader = DataLoader(split_test, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
 
 # Define number of epochs and initial learning rate
-num_epochs = 10
-learning_rate = 0.1
+num_epochs = 20
+learning_rate = 0.001
 
 # Set model parameters
 num_class = len(set([label for (text, label) in split_train]))
@@ -256,7 +275,6 @@ weights = torch.tensor([(487235 / (305797 * 2)), (487235 / (181438 * 2))]).to(de
 # Initialize loss function, optimizer, and learning rate scheduler
 criterion = nn.CrossEntropyLoss(weight=weights)
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.1)
 
 total_accu = None
 
@@ -264,37 +282,41 @@ train_losses = []
 train_accs = []
 val_losses = []
 val_accs = []
+val_precisions = []
+val_recalls = []
+val_f1s = []
 
 for epoch in range(1, num_epochs + 1):
     epoch_start_time = time.time()
     # Train model
     current_train_loss, current_train_acc = train(train_dataloader, criterion, optimizer)
-    current_val_loss, current_val_acc = evaluate(test_dataloader, criterion)
+    current_val_loss, current_val_acc, precision, recall, f1 = evaluate(test_dataloader, criterion)
 
     train_losses.append(current_train_loss)
     train_accs.append(current_train_acc)
     val_losses.append(current_val_loss)
     val_accs.append(current_val_acc)
-
-    # Step the learning rate scheduler for every epoch the accuracy decreases
-    if total_accu is not None and total_accu > current_val_acc:
-        scheduler.step()
-    else:
-        total_accu = current_val_acc
+    val_precisions.append(precision)
+    val_recalls.append(recall)
+    val_f1s.append(f1)
 
     # Print epoch statistics with validation accuracy
-    print('-' * 72)
+    print('-' * 119)
     print(
         '| end of epoch {:3d} | time: {:5.2f}s | '
-        'validation accuracy {:8.3f}       |'.format(
-            epoch, time.time() - epoch_start_time, current_val_acc
+        'validation accuracy {:8.3f} | '
+        'precision {:8.3f} | '
+        'recall {:8.3f} | '
+        'f1 {:8.3f} |'.format(
+            epoch, time.time() - epoch_start_time, current_val_acc, precision, recall, f1
         )
     )
-    print('-' * 72)
+    print('-' * 119)
 
 # Plot accuracy and loss for training and validation
 fig, ax = plt.subplots(2, 2, sharex=True, sharey=True)
-fig.suptitle('Model statistics')
+fig.suptitle('Model Metrics for Training and Validation')
+fig.supxlabel('Epochs')
 ax[0, 0].set_ylim(0,1)
 
 sns.lineplot(ax=ax[0, 0], data=train_losses)
@@ -308,6 +330,23 @@ ax[1, 0].set_title('Validation Loss')
 
 sns.lineplot(ax=ax[1, 1], data=val_accs)
 ax[1, 1].set_title('Validation Accuracy')
+
+plt.show()
+
+# Plot precision, recall, and f1 for validation
+fig, ax = plt.subplots(3, 1, sharex=True, sharey=True)
+fig.suptitle('Model Validation Metrics')
+fig.supxlabel('Epochs')
+ax[0].set_ylim(0,1)
+
+sns.lineplot(ax=ax[0], data=val_precisions)
+ax[0].set_title('Validation Precision')
+
+sns.lineplot(ax=ax[1], data=val_recalls)
+ax[1].set_title('Validation Recall')
+
+sns.lineplot(ax=ax[2], data=val_f1s)
+ax[2].set_title('Validation F1')
 
 plt.show()
 
