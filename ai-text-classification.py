@@ -16,10 +16,9 @@ import nltk
 nltk.download('stopwords')
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
-from nltk.probability import FreqDist
-import re
-from tqdm import tqdm
 import time
+from tokenizer import get_tokenizer
+from vocab import VocabGenerator
 
 # Load dataset from csv
 ai_human_df = pd.read_csv('ai_human.csv')
@@ -38,84 +37,26 @@ plt.xlabel('Class')
 plt.ylabel('Count')
 plt.show()
 
-def get_tokenizer():
-    """
-    Gets a tokenizer function for basic english sentences. Adapted from the deprecated TorchText library.
-    :return: a tokenizer function for basic english splitting on whitespace.
-    """
-
-    _patterns = [r"\'", r"\"", r"\.", r"<br \/>", r",", r"\(", r"\)", r"\!", r"\?", r"\;", r"\:", r"\s+"]
-
-    _replacements = [" '  ", "", " . ", " ", " , ", " ( ", " ) ", " ! ", " ? ", " ", " ", " "]
-
-    _patterns_dict = list((re.compile(p), r) for p, r in zip(_patterns, _replacements))
-
-    def _basic_english_normalize(line):
-        """
-        Basic normalization for a line of text in english.
-        :param line: the text to normalize.
-        :return: a list of tokens splitting on whitespace.
-        """
-        line = line.lower()
-        for pattern_re, replaced_str in _patterns_dict:
-            line = pattern_re.sub(replaced_str, line)
-        return line.split()
-
-    return _basic_english_normalize
-
 # Initialize tokenizer, stop words, and stemmer
 tokenizer = get_tokenizer()
 stop_words = set(stopwords.words('english'))
 stemmer = PorterStemmer()
 
-def generate_tokens(essays):
-    """
-    Preprocesses the list of essays using:
-    - Tokenization
-    - Stopword removal
-    - Stemming
-    - Rare word removal
-    :param essays: the list of essays to preprocess.
-    :return: processed essays as lists of tokens and the vocab list.
-    """
-    processed_essays = []
-    vocab = set()
-    print("Tokenizing essays:")
-    for essay in tqdm(essays):
-        # Tokenize the essay
-        tokens = tokenizer(essay)
-        # Remove all stopwords
-        tokens = [token for token in tokens if token not in stop_words]
-        # Stem remaining words
-        tokens = [stemmer.stem(token) for token in tokens]
-        # Remove rare words
-        freq_dist = FreqDist(tokens)
-        threshold = 2
-        tokens = [token for token in tokens if freq_dist[token] > threshold]
-        # Add tokens to list of processed essays
-        processed_essays.append(tokens)
-        # Add new words to vocab
-        for token in tokens:
-            vocab.add(token)
-    return processed_essays, vocab
+def generate_tokens(essay):
+    # Tokenize the essay
+    tokens = tokenizer(essay)
+    # Remove stopwords
+    tokens = [token for token in tokens if token not in stop_words]
+    # Stem remaining words
+    tokens = [stemmer.stem(token) for token in tokens]
+    return tokens
 
-def tokenize_and_generate_vocab(essays):
-    tokens, vocab_list = generate_tokens(essays)
-    vocab_to_idx = {word: i for i, word in enumerate(vocab_list)}
-    return tokens, vocab_to_idx
-
-def map_vocab(tokens_list, vocab_dict):
-    essay_index_list = []
-    # Convert essay tokens to vocab indices
-    for tokens in tokens_list:
-        essay_indices = [vocab_dict[w] for w in tokens]
-        essay_index_list.append(essay_indices)
-    return essay_index_list
-
-def essay_processing_pipeline(essays):
-    tokens, vocab_dict = tokenize_and_generate_vocab(essays)
-    processed_essays = map_vocab(tokens, vocab_dict)
-    return processed_essays, vocab_dict
+def essay_processing_pipeline(essay):
+    # Generate tokens
+    tokens = generate_tokens(essay)
+    # Map tokens to indices for embedding
+    indices = vocab.map_tokens_to_index(tokens)
+    return indices
 
 # Create Dataset class for essays
 class EssayDataset(Dataset):
@@ -136,7 +77,8 @@ def collate_batch(batch):
         # Append label (no processing necessary)
         label_list.append(_label)
         # Process and append text
-        processed_text = torch.tensor(_text, dtype=torch.int64)
+        processed_text = essay_processing_pipeline(_text)
+        processed_text = torch.tensor(processed_text, dtype=torch.int64)
         text_list.append(processed_text)
     label_list = torch.tensor(label_list, dtype=torch.int64)
     # Pad tensors so that batch elements are equal length
@@ -173,7 +115,7 @@ def train(dataloader, loss_criterion, optimizer):
     model.train()
     total_acc, total_count = 0, 0
     running_train_loss, running_train_acc = 0, 0
-    log_interval = 500
+    log_interval = 200
     start_time = time.time()
 
     for idx, (text, lengths, label) in enumerate(dataloader):
@@ -238,19 +180,21 @@ def evaluate(dataloader, loss_criterion):
     return avg_val_loss, avg_val_acc, precision, recall, f1
 
 # Generate sample from data
-sample_df = ai_human_df.sample(n=10000, random_state=42)
+sample_df = ai_human_df.sample(n=20000, random_state=42)
 
-# Process essays and generate vocab
-sample_df['text'], vocab = essay_processing_pipeline(sample_df['text'])
-
-# Create dataset for preprocessed data
+# Create dataset object for iteration
 essay_dataset = EssayDataset(sample_df)
 
 # Set the batch size
-batch_size = 4
+batch_size = 16
 
-# Split data and create DataLoaders
+# Split data
 split_train, split_test = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
+
+# Generate vocab using training data
+vocab = VocabGenerator(split_train[:][0])
+
+# Create train and test DataLoaders
 train_dataloader = DataLoader(split_train, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
 test_dataloader = DataLoader(split_test, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
 
@@ -260,7 +204,7 @@ learning_rate = 0.001
 
 # Set model parameters
 num_class = len(set([label for (text, label) in split_train]))
-vocab_size = len(vocab)
+vocab_size = vocab.get_vocab_size()
 embed_size = 64
 hidden_size = 2
 num_layers = 1
@@ -285,6 +229,8 @@ val_accs = []
 val_precisions = []
 val_recalls = []
 val_f1s = []
+
+print("Starting Training...")
 
 for epoch in range(1, num_epochs + 1):
     epoch_start_time = time.time()
@@ -349,19 +295,3 @@ sns.lineplot(ax=ax[2], data=val_f1s)
 ax[2].set_title('Validation F1')
 
 plt.show()
-
-# gen_essay_label = {0: 'human-generated', 1: 'AI-generated'}
-#
-# def predict(essay, essay_pipeline):
-#     with torch.no_grad():
-#         text, _ = essay_pipeline(essay)
-#         text = torch.tensor(text)
-#         output = model(text)
-#         return output.argmax(1).item()
-#
-# ex_text_str = ai_human_df.sample(n=1)
-# print('Actual label: ' + gen_essay_label[ex_text_str.iloc[0, 1]])
-#
-# model = model.to('cpu')
-#
-# print('This text is %s.' % gen_essay_label[predict(ex_text_str, essay_processing_pipeline)])
