@@ -19,6 +19,7 @@ from nltk.stem import PorterStemmer
 import time
 from tokenizer import get_tokenizer
 from vocab import VocabGenerator
+from essayLSTM import EssayLSTM
 import pickle
 
 # Load dataset from csv
@@ -93,30 +94,6 @@ def collate_batch(batch):
     sequence_lengths = torch.tensor([len(text) for text in text_list])
     # Send tensors to GPU
     return padded_sequences.to(device), sequence_lengths.to('cpu'), label_list.to(device) # lengths must be on CPU
-
-class EssayLSTM(nn.Module):
-    def __init__(self, vocab_size, embed_dim, hidden_size, num_layers, num_classes):
-        super(EssayLSTM, self).__init__()
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.embedding = nn.Embedding(vocab_size, embed_dim, sparse=False, padding_idx=0)
-        self.lstm = nn.LSTM(embed_dim, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, num_classes)
-        self.relu = nn.ReLU()
-
-    def forward(self, sequences, lengths):
-        # Perform embedding
-        embedded = self.embedding(sequences)
-        h0 = torch.zeros(self.num_layers, embedded.size(0), self.hidden_size, device=device)
-        c0 = torch.zeros(self.num_layers, embedded.size(0), self.hidden_size, device=device)
-        # Pack the embedded sequences
-        packed = pack_padded_sequence(embedded, lengths, batch_first=True, enforce_sorted=False)
-        # Propagate embeddings through LSTM layer
-        out, (hn, cn) = self.lstm(packed, (h0, c0))
-        hn = hn.view(-1, self.hidden_size) # Reshape for following Dense layer
-        out = self.relu(hn)
-        out = self.fc(out)
-        return out
 
 def train(dataloader, loss_criterion, optimizer):
     model.train()
@@ -217,7 +194,7 @@ hidden_size = 2
 num_layers = 1
 
 # Initialize the model
-model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, num_class)
+model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, num_class, device)
 model.to(device)
 
 # Initialize weights for cross entropy loss [weight = (total / (num_per_class * num_classes))]
