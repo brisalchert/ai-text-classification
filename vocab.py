@@ -5,12 +5,15 @@ from tqdm import tqdm
 from tokenizer import get_tokenizer
 
 class VocabGenerator:
-    def __init__(self, essays):
+    def __init__(self, essays=None, vocab=None):
         self.tokenizer = get_tokenizer()
         self.stop_words = stopwords.words('english')
         self.stemmer = PorterStemmer()
-        self.vocab = None
-        self.generate_vocab(essays)
+        if essays is not None:
+            self.vocab = None
+            self.generate_vocab(essays)
+        else:
+            self.vocab = vocab
 
     def generate_vocab(self, essays):
         vocab = set()
@@ -48,3 +51,6 @@ class VocabGenerator:
 
     def get_vocab_size(self):
         return len(self.vocab)
+
+    def get_vocab_dictionary(self):
+        return self.vocab

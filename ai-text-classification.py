@@ -11,13 +11,9 @@ import seaborn as sns
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, random_split
-from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
-import nltk
-nltk.download('stopwords')
-from nltk.corpus import stopwords
-from nltk.stem import PorterStemmer
+from torch.nn.utils.rnn import pad_sequence
+from preprocessing import EssayPreprocessor
 import time
-from tokenizer import get_tokenizer
 from vocab import VocabGenerator
 from essayLSTM import EssayLSTM
 import pickle
@@ -45,27 +41,6 @@ plt.show()
 fig = ax.get_figure()
 fig.savefig('class-distribution.png')
 
-# Initialize tokenizer, stop words, and stemmer
-tokenizer = get_tokenizer()
-stop_words = set(stopwords.words('english'))
-stemmer = PorterStemmer()
-
-def generate_tokens(essay):
-    # Tokenize the essay
-    tokens = tokenizer(essay)
-    # Remove stopwords
-    tokens = [token for token in tokens if token not in stop_words]
-    # Stem remaining words
-    tokens = [stemmer.stem(token) for token in tokens]
-    return tokens
-
-def essay_processing_pipeline(essay):
-    # Generate tokens
-    tokens = generate_tokens(essay)
-    # Map tokens to indices for embedding
-    indices = vocab.map_tokens_to_index(tokens)
-    return indices
-
 # Create Dataset class for essays
 class EssayDataset(Dataset):
     def __init__(self, dataframe):
@@ -85,7 +60,7 @@ def collate_batch(batch):
         # Append label (no processing necessary)
         label_list.append(_label)
         # Process and append text
-        processed_text = essay_processing_pipeline(_text)
+        processed_text = preprocessor.essay_processing_pipeline(_text)
         processed_text = torch.tensor(processed_text, dtype=torch.int64)
         text_list.append(processed_text)
     label_list = torch.tensor(label_list, dtype=torch.int64)
@@ -176,7 +151,10 @@ batch_size = 16
 split_train, split_test = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
 
 # Generate vocab using training data
-vocab = VocabGenerator(split_train[:][0])
+vocab = VocabGenerator(essays=split_train[:][0])
+
+# Initialize essay preprocessor
+preprocessor = EssayPreprocessor(vocab)
 
 # Create train and test DataLoaders
 train_dataloader = DataLoader(split_train, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
@@ -317,6 +295,11 @@ ax[2].set_ylabel('F1 Score')
 plt.subplots_adjust(hspace=0.4, wspace=0.4)
 plt.show()
 fig.savefig('val-metrics.png')
+
+# Save vocabulary
+with open('vocab.pkl', 'wb') as f:
+    # noinspection PyTypeChecker
+    pickle.dump(vocab.get_vocab_dictionary(), f)
 
 # Save the model's state dictionary
 torch.save(model.state_dict(), 'ai-text-model.pt')
