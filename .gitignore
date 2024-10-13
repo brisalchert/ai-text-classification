@@ -1,6 +1,11 @@
 # Raw data
 AI_Human.csv
 
+# Plot output
+class-distribution.png
+loss-accuracy.png
+val-metrics.png
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

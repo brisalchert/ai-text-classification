@@ -31,11 +31,17 @@ print(ai_human_df.head())
 print(ai_human_df.info())
 
 # Visualize distribution of data
-sns.countplot(x=ai_human_df['generated'])
+sns.set_style('darkgrid')
+sns.set_context('notebook')
+ax = sns.countplot(x=ai_human_df['generated'])
+ax.set_xticks([0, 1], ['Human-Generated', 'AI-Generated'])
 plt.title('Class Distribution')
 plt.xlabel('Class')
 plt.ylabel('Count')
+plt.tight_layout()
 plt.show()
+fig = ax.get_figure()
+fig.savefig('class-distribution.png')
 
 # Initialize tokenizer, stop words, and stemmer
 tokenizer = get_tokenizer()
@@ -260,41 +266,79 @@ for epoch in range(1, num_epochs + 1):
     print('-' * 119)
 
 # Plot accuracy and loss for training and validation
-fig, ax = plt.subplots(2, 2, sharex=True, sharey=True)
-fig.suptitle('Model Metrics for Training and Validation')
-fig.supxlabel('Epochs')
-ax[0, 0].set_ylim(0,1)
-
-sns.lineplot(ax=ax[0, 0], data=train_losses)
-ax[0, 0].set_title('Training Loss')
-
-sns.lineplot(ax=ax[0, 1], data=train_accs)
-ax[0, 1].set_title('Training Accuracy')
-
-sns.lineplot(ax=ax[1, 0], data=val_losses)
-ax[1, 0].set_title('Validation Loss')
-
-sns.lineplot(ax=ax[1, 1], data=val_accs)
-ax[1, 1].set_title('Validation Accuracy')
-
-plt.show()
-
-# Plot precision, recall, and f1 for validation
-fig, ax = plt.subplots(3, 1, sharex=True, sharey=True)
-fig.suptitle('Model Validation Metrics')
-fig.supxlabel('Epochs')
+sns.set_palette('Set1')
+fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
+fig.suptitle('Model Loss and Accuracy for Training and Validation')
 ax[0].set_ylim(0,1)
 
-sns.lineplot(ax=ax[0], data=val_precisions)
-ax[0].set_title('Validation Precision')
+x_range = [x for x in range(1, num_epochs + 1)]
+x_ticks = [x for x in x_range if x % 2 == 0]
 
-sns.lineplot(ax=ax[1], data=val_recalls)
-ax[1].set_title('Validation Recall')
+ax[0].set_xticks(x_ticks)
 
-sns.lineplot(ax=ax[2], data=val_f1s)
-ax[2].set_title('Validation F1')
+# Prepare loss and accuracy data for multiline plot
+loss_df = pd.DataFrame({
+    'Epoch': x_range,
+    'Training Loss': train_losses,
+    'Validation Loss': val_losses
+})
 
+acc_df = pd.DataFrame({
+    'Epoch': x_range,
+    'Training Accuracy': train_accs,
+    'Validation Accuracy': val_accs
+})
+
+# Convert DataFrames from wide to long format (one column for all measurements)
+loss_df = pd.melt(loss_df, id_vars=['Epoch'])
+acc_df = pd.melt(acc_df, id_vars=['Epoch'])
+loss_df.rename(columns={'value': 'Loss'}, inplace=True)
+acc_df.rename(columns={'value': 'Accuracy'}, inplace=True)
+
+# Set up plot for Loss
+sns.lineplot(ax=ax[0], data=loss_df, y='Loss', x='Epoch', hue='variable')
+ax[0].set_title('Training and Validation Loss')
+handles, labels = ax[0].get_legend_handles_labels()
+ax[0].legend(handles=handles, labels=labels)
+
+# Set up plot for Accuracy
+sns.lineplot(ax=ax[1], data=acc_df, y='Accuracy', x='Epoch', hue='variable')
+ax[1].set_title('Training and Validation Accuracy')
+handles, labels = ax[1].get_legend_handles_labels()
+ax[1].legend(handles=handles, labels=labels)
+
+# Increase spacing between plots and show
+plt.subplots_adjust(hspace=0.4, wspace=0.4)
 plt.show()
+fig.savefig('loss-accuracy.png')
+
+# Plot precision, recall, and f1 for validation
+fig, ax = plt.subplots(3, 1, sharex=True, sharey=True, figsize=(6.4, 6.4))
+fig.suptitle('Model Validation Precision, Recall, and F1 Score')
+fig.supxlabel('Epoch', fontsize=12)
+ax[0].set_ylim(0,1)
+ax[0].set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+ax[0].set_xticks(x_ticks)
+
+# Set up plot for Precision
+sns.lineplot(ax=ax[0], y=val_precisions, x=x_range)
+ax[0].set_title('Validation Precision')
+ax[0].set_ylabel('Precision')
+
+# Set up plot for Recall
+sns.lineplot(ax=ax[1], y=val_recalls, x=x_range)
+ax[1].set_title('Validation Recall')
+ax[1].set_ylabel('Recall')
+
+# Set up plot for F1 Score
+sns.lineplot(ax=ax[2], y=val_f1s, x=x_range)
+ax[2].set_title('Validation F1')
+ax[2].set_ylabel('F1 Score')
+
+# Increase spacing between plots and show
+plt.subplots_adjust(hspace=0.4, wspace=0.4)
+plt.show()
+fig.savefig('val-metrics.png')
 
 gen_essay_label = {0: 'human-generated', 1: 'AI-generated'}
 
