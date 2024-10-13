@@ -19,6 +19,7 @@ from nltk.stem import PorterStemmer
 import time
 from tokenizer import get_tokenizer
 from vocab import VocabGenerator
+import pickle
 
 # Load dataset from csv
 ai_human_df = pd.read_csv('ai_human.csv')
@@ -340,35 +341,18 @@ plt.subplots_adjust(hspace=0.4, wspace=0.4)
 plt.show()
 fig.savefig('val-metrics.png')
 
-gen_essay_label = {0: 'human-generated', 1: 'AI-generated'}
-
-def predict(essay, essay_pipeline):
-    with torch.no_grad():
-        text = essay_pipeline(essay)
-        text = torch.tensor(text)
-        sequence_length = torch.tensor(text.shape)
-        # Reshape text for batch-first tensor format
-        text = text.reshape(1, -1)
-        output = model(text, sequence_length)
-        return output.argmax(1).item()
-
-device = 'cpu'
-model = model.to(device)
-
-ex_text_str = ai_human_df.sample(n=100)
-count_correct = 0
-count_total = len(ex_text_str)
-
-for i in range(len(ex_text_str)):
-    true_label = gen_essay_label[ex_text_str.iloc[i, 1]]
-    pred_label = gen_essay_label[predict(ex_text_str.iloc[i,0], essay_processing_pipeline)]
-
-    if true_label == pred_label:
-        count_correct += 1
-
-valid_accuracy = count_correct / count_total
-
-print('\nFinal validation accuracy on random sample: {:8.3f}'.format(valid_accuracy))
-
 # Save the model's state dictionary
 torch.save(model.state_dict(), 'ai-text-model.pt')
+
+# Save model parameters
+model_params = {
+    'vocab_size': vocab_size,
+    'embed_size': embed_size,
+    'hidden_size': hidden_size,
+    'num_layers': num_layers,
+    'num_class': num_class
+}
+
+with open('model-params.pkl', 'wb') as f:
+    # noinspection PyTypeChecker
+    pickle.dump(model_params, f)

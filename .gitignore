@@ -6,8 +6,9 @@ class-distribution.png
 loss-accuracy.png
 val-metrics.png
 
-# Saved model state dictionary
+# Saved model state dictionary and parameters
 ai-text-model.pt
+model-params.pkl
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
