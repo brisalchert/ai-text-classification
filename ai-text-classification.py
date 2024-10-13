@@ -21,34 +21,6 @@ from tokenizer import get_tokenizer
 from vocab import VocabGenerator
 import pickle
 
-# Load dataset from csv
-ai_human_df = pd.read_csv('ai_human.csv')
-
-# Fix class label data type
-ai_human_df['generated'] = ai_human_df['generated'].astype(int)
-
-# Preview data
-print(ai_human_df.head())
-print(ai_human_df.info())
-
-# Visualize distribution of data
-sns.set_style('darkgrid')
-sns.set_context('notebook')
-ax = sns.countplot(x=ai_human_df['generated'])
-ax.set_xticks([0, 1], ['Human-Generated', 'AI-Generated'])
-plt.title('Class Distribution')
-plt.xlabel('Class')
-plt.ylabel('Count')
-plt.tight_layout()
-plt.show()
-fig = ax.get_figure()
-fig.savefig('class-distribution.png')
-
-# Initialize tokenizer, stop words, and stemmer
-tokenizer = get_tokenizer()
-stop_words = set(stopwords.words('english'))
-stemmer = PorterStemmer()
-
 def generate_tokens(essay):
     # Tokenize the essay
     tokens = tokenizer(essay)
@@ -74,9 +46,6 @@ class EssayDataset(Dataset):
         return len(self.essays)
     def __getitem__(self, idx):
         return self.essays.iloc[idx], self.labels.iloc[idx]
-
-# Set device to CUDA GPU
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def collate_batch(batch):
     text_list, label_list = [], []
@@ -186,173 +155,205 @@ def evaluate(dataloader, loss_criterion):
     avg_val_acc = running_val_acc / (len(dataloader) * dataloader.batch_size)
     return avg_val_loss, avg_val_acc, precision, recall, f1
 
-# Generate sample from data
-sample_df = ai_human_df.sample(n=20000, random_state=42)
+if __name__ == '__main__':
+    # Load dataset from csv
+    ai_human_df = pd.read_csv('ai_human.csv')
 
-# Create dataset object for iteration
-essay_dataset = EssayDataset(sample_df)
+    # Fix class label data type
+    ai_human_df['generated'] = ai_human_df['generated'].astype(int)
 
-# Set the batch size
-batch_size = 16
+    # Preview data
+    print(ai_human_df.head())
+    print(ai_human_df.info())
 
-# Split data
-split_train, split_test = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
+    # Visualize distribution of data
+    sns.set_style('darkgrid')
+    sns.set_context('notebook')
+    ax = sns.countplot(x=ai_human_df['generated'])
+    ax.set_xticks([0, 1], ['Human-Generated', 'AI-Generated'])
+    plt.title('Class Distribution')
+    plt.xlabel('Class')
+    plt.ylabel('Count')
+    plt.tight_layout()
+    plt.show()
+    fig = ax.get_figure()
+    fig.savefig('class-distribution.png')
 
-# Generate vocab using training data
-vocab = VocabGenerator(split_train[:][0])
+    # Initialize tokenizer, stop words, and stemmer
+    tokenizer = get_tokenizer()
+    stop_words = set(stopwords.words('english'))
+    stemmer = PorterStemmer()
 
-# Create train and test DataLoaders
-train_dataloader = DataLoader(split_train, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
-test_dataloader = DataLoader(split_test, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
+    # Set device to CUDA GPU
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Define number of epochs and initial learning rate
-num_epochs = 20
-learning_rate = 0.001
+    # Generate sample from data
+    sample_df = ai_human_df.sample(n=20000, random_state=42)
 
-# Set model parameters
-num_class = len(set([label for (text, label) in split_train]))
-vocab_size = vocab.get_vocab_size()
-embed_size = 64
-hidden_size = 2
-num_layers = 1
+    # Create dataset object for iteration
+    essay_dataset = EssayDataset(sample_df)
 
-# Initialize the model
-model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, num_class)
-model.to(device)
+    # Set the batch size
+    batch_size = 16
 
-# Initialize weights for cross entropy loss [weight = (total / (num_per_class * num_classes))]
-weights = torch.tensor([(487235 / (305797 * 2)), (487235 / (181438 * 2))]).to(device)
+    # Split data
+    split_train, split_test = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
 
-# Initialize loss function, optimizer, and learning rate scheduler
-criterion = nn.CrossEntropyLoss(weight=weights)
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    # Generate vocab using training data
+    vocab = VocabGenerator(split_train[:][0])
 
-total_accu = None
+    # Create train and test DataLoaders
+    train_dataloader = DataLoader(split_train, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
+    test_dataloader = DataLoader(split_test, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
 
-train_losses = []
-train_accs = []
-val_losses = []
-val_accs = []
-val_precisions = []
-val_recalls = []
-val_f1s = []
+    # Define number of epochs and initial learning rate
+    num_epochs = 20
+    learning_rate = 0.001
 
-print("Starting Training...")
+    # Set model parameters
+    num_class = len(set([label for (text, label) in split_train]))
+    vocab_size = vocab.get_vocab_size()
+    embed_size = 64
+    hidden_size = 2
+    num_layers = 1
 
-for epoch in range(1, num_epochs + 1):
-    epoch_start_time = time.time()
-    # Train model
-    current_train_loss, current_train_acc = train(train_dataloader, criterion, optimizer)
-    current_val_loss, current_val_acc, precision, recall, f1 = evaluate(test_dataloader, criterion)
+    # Initialize the model
+    model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, num_class)
+    model.to(device)
 
-    train_losses.append(current_train_loss)
-    train_accs.append(current_train_acc)
-    val_losses.append(current_val_loss)
-    val_accs.append(current_val_acc)
-    val_precisions.append(precision)
-    val_recalls.append(recall)
-    val_f1s.append(f1)
+    # Initialize weights for cross entropy loss [weight = (total / (num_per_class * num_classes))]
+    weights = torch.tensor([(487235 / (305797 * 2)), (487235 / (181438 * 2))]).to(device)
 
-    # Print epoch statistics with validation accuracy
-    print('-' * 119)
-    print(
-        '| end of epoch {:3d} | time: {:5.2f}s | '
-        'validation accuracy {:8.3f} | '
-        'precision {:8.3f} | '
-        'recall {:8.3f} | '
-        'f1 {:8.3f} |'.format(
-            epoch, time.time() - epoch_start_time, current_val_acc, precision, recall, f1
+    # Initialize loss function, optimizer, and learning rate scheduler
+    criterion = nn.CrossEntropyLoss(weight=weights)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+    total_accu = None
+
+    train_losses = []
+    train_accs = []
+    val_losses = []
+    val_accs = []
+    val_precisions = []
+    val_recalls = []
+    val_f1s = []
+
+    print("Starting Training...")
+
+    for epoch in range(1, num_epochs + 1):
+        epoch_start_time = time.time()
+        # Train model
+        current_train_loss, current_train_acc = train(train_dataloader, criterion, optimizer)
+        current_val_loss, current_val_acc, precision, recall, f1 = evaluate(test_dataloader, criterion)
+
+        train_losses.append(current_train_loss)
+        train_accs.append(current_train_acc)
+        val_losses.append(current_val_loss)
+        val_accs.append(current_val_acc)
+        val_precisions.append(precision)
+        val_recalls.append(recall)
+        val_f1s.append(f1)
+
+        # Print epoch statistics with validation accuracy
+        print('-' * 119)
+        print(
+            '| end of epoch {:3d} | time: {:5.2f}s | '
+            'validation accuracy {:8.3f} | '
+            'precision {:8.3f} | '
+            'recall {:8.3f} | '
+            'f1 {:8.3f} |'.format(
+                epoch, time.time() - epoch_start_time, current_val_acc, precision, recall, f1
+            )
         )
-    )
-    print('-' * 119)
+        print('-' * 119)
 
-# Plot accuracy and loss for training and validation
-sns.set_palette('Set1')
-fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
-fig.suptitle('Model Loss and Accuracy for Training and Validation')
-ax[0].set_ylim(0,1)
+    # Plot accuracy and loss for training and validation
+    sns.set_palette('Set1')
+    fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
+    fig.suptitle('Model Loss and Accuracy for Training and Validation')
+    ax[0].set_ylim(0,1)
 
-x_range = [x for x in range(1, num_epochs + 1)]
-x_ticks = [x for x in x_range if x % 2 == 0]
+    x_range = [x for x in range(1, num_epochs + 1)]
+    x_ticks = [x for x in x_range if x % 2 == 0]
 
-ax[0].set_xticks(x_ticks)
+    ax[0].set_xticks(x_ticks)
 
-# Prepare loss and accuracy data for multiline plot
-loss_df = pd.DataFrame({
-    'Epoch': x_range,
-    'Training Loss': train_losses,
-    'Validation Loss': val_losses
-})
+    # Prepare loss and accuracy data for multiline plot
+    loss_df = pd.DataFrame({
+        'Epoch': x_range,
+        'Training Loss': train_losses,
+        'Validation Loss': val_losses
+    })
 
-acc_df = pd.DataFrame({
-    'Epoch': x_range,
-    'Training Accuracy': train_accs,
-    'Validation Accuracy': val_accs
-})
+    acc_df = pd.DataFrame({
+        'Epoch': x_range,
+        'Training Accuracy': train_accs,
+        'Validation Accuracy': val_accs
+    })
 
-# Convert DataFrames from wide to long format (one column for all measurements)
-loss_df = pd.melt(loss_df, id_vars=['Epoch'])
-acc_df = pd.melt(acc_df, id_vars=['Epoch'])
-loss_df.rename(columns={'value': 'Loss'}, inplace=True)
-acc_df.rename(columns={'value': 'Accuracy'}, inplace=True)
+    # Convert DataFrames from wide to long format (one column for all measurements)
+    loss_df = pd.melt(loss_df, id_vars=['Epoch'])
+    acc_df = pd.melt(acc_df, id_vars=['Epoch'])
+    loss_df.rename(columns={'value': 'Loss'}, inplace=True)
+    acc_df.rename(columns={'value': 'Accuracy'}, inplace=True)
 
-# Set up plot for Loss
-sns.lineplot(ax=ax[0], data=loss_df, y='Loss', x='Epoch', hue='variable')
-ax[0].set_title('Training and Validation Loss')
-handles, labels = ax[0].get_legend_handles_labels()
-ax[0].legend(handles=handles, labels=labels)
+    # Set up plot for Loss
+    sns.lineplot(ax=ax[0], data=loss_df, y='Loss', x='Epoch', hue='variable')
+    ax[0].set_title('Training and Validation Loss')
+    handles, labels = ax[0].get_legend_handles_labels()
+    ax[0].legend(handles=handles, labels=labels)
 
-# Set up plot for Accuracy
-sns.lineplot(ax=ax[1], data=acc_df, y='Accuracy', x='Epoch', hue='variable')
-ax[1].set_title('Training and Validation Accuracy')
-handles, labels = ax[1].get_legend_handles_labels()
-ax[1].legend(handles=handles, labels=labels)
+    # Set up plot for Accuracy
+    sns.lineplot(ax=ax[1], data=acc_df, y='Accuracy', x='Epoch', hue='variable')
+    ax[1].set_title('Training and Validation Accuracy')
+    handles, labels = ax[1].get_legend_handles_labels()
+    ax[1].legend(handles=handles, labels=labels)
 
-# Increase spacing between plots and show
-plt.subplots_adjust(hspace=0.4, wspace=0.4)
-plt.show()
-fig.savefig('loss-accuracy.png')
+    # Increase spacing between plots and show
+    plt.subplots_adjust(hspace=0.4, wspace=0.4)
+    plt.show()
+    fig.savefig('loss-accuracy.png')
 
-# Plot precision, recall, and f1 for validation
-fig, ax = plt.subplots(3, 1, sharex=True, sharey=True, figsize=(6.4, 6.4))
-fig.suptitle('Model Validation Precision, Recall, and F1 Score')
-fig.supxlabel('Epoch', fontsize=12)
-ax[0].set_ylim(0,1)
-ax[0].set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1])
-ax[0].set_xticks(x_ticks)
+    # Plot precision, recall, and f1 for validation
+    fig, ax = plt.subplots(3, 1, sharex=True, sharey=True, figsize=(6.4, 6.4))
+    fig.suptitle('Model Validation Precision, Recall, and F1 Score')
+    fig.supxlabel('Epoch', fontsize=12)
+    ax[0].set_ylim(0,1)
+    ax[0].set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+    ax[0].set_xticks(x_ticks)
 
-# Set up plot for Precision
-sns.lineplot(ax=ax[0], y=val_precisions, x=x_range)
-ax[0].set_title('Validation Precision')
-ax[0].set_ylabel('Precision')
+    # Set up plot for Precision
+    sns.lineplot(ax=ax[0], y=val_precisions, x=x_range)
+    ax[0].set_title('Validation Precision')
+    ax[0].set_ylabel('Precision')
 
-# Set up plot for Recall
-sns.lineplot(ax=ax[1], y=val_recalls, x=x_range)
-ax[1].set_title('Validation Recall')
-ax[1].set_ylabel('Recall')
+    # Set up plot for Recall
+    sns.lineplot(ax=ax[1], y=val_recalls, x=x_range)
+    ax[1].set_title('Validation Recall')
+    ax[1].set_ylabel('Recall')
 
-# Set up plot for F1 Score
-sns.lineplot(ax=ax[2], y=val_f1s, x=x_range)
-ax[2].set_title('Validation F1')
-ax[2].set_ylabel('F1 Score')
+    # Set up plot for F1 Score
+    sns.lineplot(ax=ax[2], y=val_f1s, x=x_range)
+    ax[2].set_title('Validation F1')
+    ax[2].set_ylabel('F1 Score')
 
-# Increase spacing between plots and show
-plt.subplots_adjust(hspace=0.4, wspace=0.4)
-plt.show()
-fig.savefig('val-metrics.png')
+    # Increase spacing between plots and show
+    plt.subplots_adjust(hspace=0.4, wspace=0.4)
+    plt.show()
+    fig.savefig('val-metrics.png')
 
-# Save the model's state dictionary
-torch.save(model.state_dict(), 'ai-text-model.pt')
+    # Save the model's state dictionary
+    torch.save(model.state_dict(), 'ai-text-model.pt')
 
-# Save model parameters
-model_params = {
-    'vocab_size': vocab_size,
-    'embed_size': embed_size,
-    'hidden_size': hidden_size,
-    'num_layers': num_layers,
-    'num_class': num_class
-}
+    # Save model parameters
+    model_params = {
+        'vocab_size': vocab_size,
+        'embed_size': embed_size,
+        'hidden_size': hidden_size,
+        'num_layers': num_layers,
+        'num_class': num_class
+    }
 
-with open('model-params.pkl', 'wb') as f:
-    # noinspection PyTypeChecker
-    pickle.dump(model_params, f)
+    with open('model-params.pkl', 'wb') as f:
+        # noinspection PyTypeChecker
+        pickle.dump(model_params, f)
