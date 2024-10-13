@@ -369,3 +369,6 @@ for i in range(len(ex_text_str)):
 valid_accuracy = count_correct / count_total
 
 print('\nFinal validation accuracy on random sample: {:8.3f}'.format(valid_accuracy))
+
+# Save the model's state dictionary
+torch.save(model.state_dict(), 'ai-text-model.pt')
