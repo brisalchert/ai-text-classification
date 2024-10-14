@@ -7,7 +7,15 @@ from preprocessing import EssayPreprocessor
 from vocab import VocabGenerator
 
 # Load dataset
-ai_human_df = pd.read_csv('AI_Human.csv')
+ai_human_df = pd.read_json('dataset.jsonl', lines=True)
+ai_human_df = ai_human_df[["Answer", "Is_it_AI"]]
+
+# Remove entries with missing answers
+ai_human_df.dropna(subset=['Answer'], inplace=True)
+
+print(ai_human_df.head())
+print(ai_human_df.describe())
+print(ai_human_df.info())
 
 # Load vocabulary
 with open('vocab.pkl', 'rb') as f:
