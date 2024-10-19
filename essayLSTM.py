@@ -22,7 +22,7 @@ class EssayLSTM(nn.Module):
         packed = pack_padded_sequence(embedded, lengths, batch_first=True, enforce_sorted=False)
         # Propagate embeddings through LSTM layer
         out, (hn, cn) = self.lstm(packed, (h0, c0))
-        hn = hn.view(-1, self.hidden_size) # Reshape for following Dense layer
+        hn = hn[-1] # Get last hidden state
         out = self.relu(hn)
         out = self.fc(out)
         return out
