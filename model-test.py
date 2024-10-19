@@ -57,7 +57,7 @@ def predict(essay, essay_pipeline):
 
 gen_essay_label = {0: 'human-generated', 1: 'AI-generated'}
 
-sample_essays = ai_human_df.sample(n=1000)
+sample_essays = ai_human_df
 count_correct = 0
 count_total = len(sample_essays)
 
