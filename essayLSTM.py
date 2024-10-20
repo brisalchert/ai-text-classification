@@ -8,7 +8,7 @@ class EssayLSTM(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.embedding = nn.Embedding(vocab_size, embed_dim, sparse=False, padding_idx=0)
-        self.lstm = nn.LSTM(embed_dim, hidden_size, num_layers, batch_first=True)
+        self.lstm = nn.LSTM(embed_dim, hidden_size, num_layers, batch_first=True, dropout=0.5)
         self.fc = nn.Linear(hidden_size, num_classes)
         self.relu = nn.ReLU()
         self.device = device

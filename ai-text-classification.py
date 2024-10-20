@@ -24,6 +24,9 @@ ai_human_df = pd.read_csv('ai_human.csv')
 # Fix class label data type
 ai_human_df['generated'] = ai_human_df['generated'].astype(int)
 
+# Remove short essays from dataset
+ai_human_df = ai_human_df[~(ai_human_df['text'].str.len() <= 50)]
+
 # Preview data
 print(ai_human_df.head())
 print(ai_human_df.info())
@@ -72,19 +75,20 @@ def collate_batch(batch):
 
 def train(dataloader, loss_criterion, optimizer):
     model.train()
-    total_acc, total_count = 0, 0
+    total_acc, total_loss, total_count = 0, 0, 0
     running_train_loss, running_train_acc = 0, 0
-    log_interval = 200
+    log_interval = len(dataloader) / 5
     start_time = time.time()
 
     for idx, (text, lengths, label) in enumerate(dataloader):
         optimizer.zero_grad()
         predicted_label = model(text, lengths)
         loss = loss_criterion(predicted_label, label)
+        total_loss += loss.item()
         running_train_loss += loss.item()
         loss.backward()
         # Clip to avoid exploding gradient
-        nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.1)
+        nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
         optimizer.step()
         total_acc += (predicted_label.argmax(1) == label).sum().item()
         running_train_acc += (predicted_label.argmax(1) == label).sum().item()
@@ -94,11 +98,12 @@ def train(dataloader, loss_criterion, optimizer):
             print(
                 '| epoch {:3d} | {:5d}/{:5d} batches '
                 '| accuracy {:8.3f} '
+                '| loss {:8.5f}'
                 '| time {:8.3f}s |'.format(
-                    epoch, (idx + 1), len(dataloader), total_acc / total_count, elapsed
+                    epoch, (idx + 1), len(dataloader), total_acc / total_count, total_loss / total_count, elapsed
                 )
             )
-            total_acc, total_count = 0, 0
+            total_acc, total_loss, total_count = 0, 0, 0
             start_time = time.time()
 
     avg_train_loss = running_train_loss / (len(dataloader) * dataloader.batch_size)
@@ -139,16 +144,16 @@ def evaluate(dataloader, loss_criterion):
     return avg_val_loss, avg_val_acc, precision, recall, f1
 
 # Generate sample from data
-sample_df = ai_human_df.sample(n=20000, random_state=42)
+sample_df = ai_human_df.sample(n=25600, random_state=42)
 
 # Create dataset object for iteration
 essay_dataset = EssayDataset(sample_df)
 
 # Set the batch size
-batch_size = 16
+batch_size = 64
 
 # Split data
-split_train, split_test = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
+split_train, split_test = random_split(essay_dataset, [0.8, 0.2])
 
 # Generate vocab using training data
 vocab = VocabGenerator(essays=split_train[:][0])
@@ -161,15 +166,15 @@ train_dataloader = DataLoader(split_train, batch_size=batch_size, shuffle=True, 
 test_dataloader = DataLoader(split_test, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
 
 # Define number of epochs and initial learning rate
-num_epochs = 20
-learning_rate = 0.001
+num_epochs = 10
+learning_rate = 0.003
 
 # Set model parameters
 num_class = len(set([label for (text, label) in split_train]))
 vocab_size = vocab.get_vocab_size()
-embed_size = 64
-hidden_size = 2
-num_layers = 1
+embed_size = 15
+hidden_size = 4
+num_layers = 2
 
 # Initialize the model
 model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, num_class, device)
@@ -209,23 +214,24 @@ for epoch in range(1, num_epochs + 1):
     val_f1s.append(f1)
 
     # Print epoch statistics with validation accuracy
-    print('-' * 119)
+    print('-' * 147)
     print(
         '| end of epoch {:3d} | time: {:5.2f}s | '
         'validation accuracy {:8.3f} | '
+        'validation loss {:8.5f} | '
         'precision {:8.3f} | '
         'recall {:8.3f} | '
         'f1 {:8.3f} |'.format(
-            epoch, time.time() - epoch_start_time, current_val_acc, precision, recall, f1
+            epoch, time.time() - epoch_start_time, current_val_acc, current_val_loss, precision, recall, f1
         )
     )
-    print('-' * 119)
+    print('-' * 147)
 
 # Plot accuracy and loss for training and validation
 sns.set_palette('Set1')
-fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
+fig, ax = plt.subplots(2, 1, sharex=True)
 fig.suptitle('Model Loss and Accuracy for Training and Validation')
-ax[0].set_ylim(0,1)
+ax[1].set_ylim(0,1)
 
 x_range = [x for x in range(1, num_epochs + 1)]
 x_ticks = [x for x in x_range if x % 2 == 0]
