@@ -13,7 +13,7 @@ The objective of this project is to design a neural network binary classifier th
 The dataset used for training and validation can be found at the following link on Kaggle:
 * https://www.kaggle.com/datasets/shanegerami/ai-vs-human-text
 
-The dataset used for validation and feature engineering can be found at the following link on Science Direct:
+The dataset used for testing and feature engineering can be found at the following link on Science Direct:
 * https://www.sciencedirect.com/science/article/pii/S2352340924002117
 
 ---
