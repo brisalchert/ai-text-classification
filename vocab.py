@@ -28,7 +28,7 @@ class VocabGenerator:
                 all_tokens.append(token)
         # Remove rare tokens from vocab
         freq_dist = FreqDist(all_tokens)
-        threshold = 4
+        threshold = 16
         vocab = [token for token in vocab if freq_dist[token] > threshold]
         # Remove stopwords
         vocab = [token for token in vocab if token not in self.stop_words]
