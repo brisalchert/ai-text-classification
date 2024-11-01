@@ -12,7 +12,8 @@ class EssayLSTM(nn.Module):
         self.fc_1 = nn.Linear(hidden_size, 128)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.5)
-        self.fc_2 = nn.Linear(128, 1)
+        self.fc_2 = nn.Linear(128, 64)
+        self.fc_3 = nn.Linear(64, 1)
         self.device = device
 
     def forward(self, sequences, lengths):
@@ -29,4 +30,7 @@ class EssayLSTM(nn.Module):
         out = self.relu(out)
         out = self.dropout(out)
         out = self.fc_2(out)
+        out = self.relu(out)
+        out = self.dropout(out)
+        out = self.fc_3(out)
         return out
