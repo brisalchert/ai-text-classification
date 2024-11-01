@@ -38,13 +38,16 @@ num_layers = model_params['num_layers']
 # Set device to CPU
 device = 'cpu'
 
+# Set prediction threshold
+threshold = 0.7
+
 # Load the model
 model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
 model.load_state_dict(torch.load('ai-text-model.pt', weights_only=True))
 model.eval()
 model.to('cpu')
 
-def predict(essay, essay_pipeline):
+def predict(essay, essay_pipeline, threshold):
     with torch.no_grad():
         text = essay_pipeline(essay)
         text = torch.tensor(text)
@@ -52,23 +55,36 @@ def predict(essay, essay_pipeline):
         # Reshape text for batch-first tensor format
         text = text.reshape(1, -1)
         output = model(text, sequence_length)
-        predicted_label = (output >= 0).int()
-        return predicted_label.item()
+        predicted_label = (torch.sigmoid(output) >= threshold).int().item()
+        return predicted_label
 
 gen_essay_label = {0: 'human-generated', 1: 'AI-generated'}
 
 sample_essays = ai_human_df
-count_correct = 0
+true_pos, true_neg = 0, 0
+count_human, count_ai = 0, 0
 count_total = len(sample_essays)
 
-print("Testing random sample:")
+print("Testing sample:")
 for i in tqdm(range(len(sample_essays))):
     true_label = gen_essay_label[sample_essays.iloc[i, 1]]
-    pred_label = gen_essay_label[predict(sample_essays.iloc[i,0], preprocessor.essay_processing_pipeline)]
+    pred_label = gen_essay_label[predict(sample_essays.iloc[i,0], preprocessor.essay_processing_pipeline, threshold)]
 
     if true_label == pred_label:
-        count_correct += 1
+        if true_label == 'AI-generated':
+            true_pos += 1
+        else:
+            true_neg += 1
 
+    if pred_label == gen_essay_label[0]:
+        count_human += 1
+    else:
+        count_ai += 1
+
+count_correct = true_pos + true_neg
 valid_accuracy = count_correct / count_total
 
 print('\nValidation accuracy on random sample: {:8.3f}'.format(valid_accuracy))
+print('\nHuman predictions: {:5d}\nAI predictions: {:5d}'.format(count_human, count_ai))
+print('\nTrue negatives: {:5d}\nTrue positives: {:5d}'.format(true_neg, true_pos))
+print('\nHuman accuracy: {:8.3f}\nAI accuracy: {:8.3f}'.format((true_neg / count_human), (true_pos / count_ai)))

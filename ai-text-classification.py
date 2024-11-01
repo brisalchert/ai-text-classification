@@ -3,6 +3,7 @@
 #
 # Python script for training a CNN for classifying AI-generated versus human-generated text.
 #-----------------------------------------------------------------------------------------------------------------------
+
 # Import packages
 import numpy as np
 import pandas as pd
@@ -73,7 +74,7 @@ def collate_batch(batch):
     # Send tensors to GPU
     return padded_sequences.to(device), sequence_lengths.to('cpu'), label_list.to(device) # lengths must be on CPU
 
-def train(dataloader, loss_criterion, optimizer):
+def train(dataloader, loss_criterion, optimizer, threshold, lambda_reg):
     model.train()
     total_acc, total_loss, total_count = 0, 0, 0
     running_train_loss, running_train_acc = 0, 0
@@ -86,8 +87,11 @@ def train(dataloader, loss_criterion, optimizer):
         optimizer.zero_grad()
         logit = model(text, lengths)
         loss = loss_criterion(logit, target)
+        # Calculate L2 normalization penalty
+        l2_norm = sum(p.pow(2).sum() for p in model.parameters())
+        loss += lambda_reg * l2_norm
         # Create predicted label as binary label with shape matching label from dataloader
-        predicted_label = (logit.reshape(-1) >= 0).float()
+        predicted_label = (torch.sigmoid(logit).reshape(-1) >= threshold).float()
         total_loss += loss.item()
         running_train_loss += loss.item()
         loss.backward()
@@ -114,7 +118,7 @@ def train(dataloader, loss_criterion, optimizer):
     avg_train_acc = running_train_acc / (len(dataloader) * dataloader.batch_size)
     return avg_train_loss, avg_train_acc
 
-def evaluate(dataloader, loss_criterion):
+def evaluate(dataloader, loss_criterion, threshold, lambda_reg):
     model.eval()
     running_val_loss, running_val_acc = 0, 0
     true_labels = []
@@ -126,8 +130,11 @@ def evaluate(dataloader, loss_criterion):
             target = label.reshape(-1, 1)
             logit = model(text, lengths)
             loss = loss_criterion(logit, target)
+            # Calculate L2 normalization penalty
+            l2_norm = sum(p.pow(2).sum() for p in model.parameters())
+            loss += lambda_reg * l2_norm
             # Create predicted label as binary label with shape matching label from dataloader
-            predicted_label = (logit.reshape(-1) >= 0).float()
+            predicted_label = (torch.sigmoid(logit).reshape(-1) >= threshold).float()
             running_val_loss += loss.item()
             running_val_acc += (predicted_label == label).sum().item()
             # Add true and predicted labels to lists
@@ -174,14 +181,20 @@ train_dataloader = DataLoader(split_train, batch_size=batch_size, shuffle=True, 
 test_dataloader = DataLoader(split_test, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
 
 # Define number of epochs and initial learning rate
-num_epochs = 25
+num_epochs = 10
 learning_rate = 0.001
 
 # Set model parameters
 vocab_size = vocab.get_vocab_size()
-embed_size = 50
+embed_size = 100
 hidden_size = 4
 num_layers = 2
+
+# Define decision threshold for classification
+threshold = 0.7
+
+# Define lambda_reg for L2 normalization
+l2_lambda = 1e-7
 
 # Initialize the model
 model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
@@ -209,8 +222,10 @@ print("Starting Training...")
 for epoch in range(1, num_epochs + 1):
     epoch_start_time = time.time()
     # Train model
-    current_train_loss, current_train_acc = train(train_dataloader, criterion, optimizer)
-    current_val_loss, current_val_acc, precision, recall, f1 = evaluate(test_dataloader, criterion)
+    current_train_loss, current_train_acc = train(train_dataloader, criterion, optimizer,
+                                                  threshold, l2_lambda)
+    current_val_loss, current_val_acc, precision, recall, f1 = evaluate(test_dataloader, criterion,
+                                                                        threshold, l2_lambda)
 
     train_losses.append(current_train_loss)
     train_accs.append(current_train_acc)
