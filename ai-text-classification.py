@@ -3,8 +3,8 @@
 #
 # Python script for training a CNN for classifying AI-generated versus human-generated text.
 #-----------------------------------------------------------------------------------------------------------------------
-
 # Import packages
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -66,7 +66,7 @@ def collate_batch(batch):
         processed_text = preprocessor.essay_processing_pipeline(_text)
         processed_text = torch.tensor(processed_text, dtype=torch.int64)
         text_list.append(processed_text)
-    label_list = torch.tensor(label_list, dtype=torch.int64)
+    label_list = torch.tensor(label_list, dtype=torch.float)
     # Pad tensors so that batch elements are equal length
     padded_sequences = pad_sequence(text_list, batch_first=True, padding_value=0)
     sequence_lengths = torch.tensor([len(text) for text in text_list])
@@ -81,17 +81,21 @@ def train(dataloader, loss_criterion, optimizer):
     start_time = time.time()
 
     for idx, (text, lengths, label) in enumerate(dataloader):
+        #Prepare target from label
+        target = label.reshape(-1, 1)
         optimizer.zero_grad()
-        predicted_label = model(text, lengths)
-        loss = loss_criterion(predicted_label, label)
+        logit = model(text, lengths)
+        loss = loss_criterion(logit, target)
+        # Create predicted label as binary label with shape matching label from dataloader
+        predicted_label = (logit.reshape(-1) >= 0).float()
         total_loss += loss.item()
         running_train_loss += loss.item()
         loss.backward()
         # Clip to avoid exploding gradient
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
         optimizer.step()
-        total_acc += (predicted_label.argmax(1) == label).sum().item()
-        running_train_acc += (predicted_label.argmax(1) == label).sum().item()
+        total_acc += (predicted_label == label).sum().item()
+        running_train_acc += (predicted_label == label).sum().item()
         total_count += label.size(0)
         if (idx + 1) % log_interval == 0 and idx > 0:
             elapsed = time.time() - start_time
@@ -118,13 +122,17 @@ def evaluate(dataloader, loss_criterion):
 
     with torch.no_grad():
         for idx, (text, lengths, label) in enumerate(dataloader):
-            predicted_label = model(text, lengths)
-            loss = loss_criterion(predicted_label, label)
+            # Prepare target from label
+            target = label.reshape(-1, 1)
+            logit = model(text, lengths)
+            loss = loss_criterion(logit, target)
+            # Create predicted label as binary label with shape matching label from dataloader
+            predicted_label = (logit.reshape(-1) >= 0).float()
             running_val_loss += loss.item()
-            running_val_acc += (predicted_label.argmax(1) == label).sum().item()
+            running_val_acc += (predicted_label == label).sum().item()
             # Add true and predicted labels to lists
             true_labels.append(label)
-            predicted_labels.append(predicted_label.argmax(1))
+            predicted_labels.append(predicted_label)
 
     # Convert true and predicted label lists to tensors
     true_labels = torch.cat(true_labels, dim=0)
@@ -166,25 +174,24 @@ train_dataloader = DataLoader(split_train, batch_size=batch_size, shuffle=True, 
 test_dataloader = DataLoader(split_test, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
 
 # Define number of epochs and initial learning rate
-num_epochs = 10
-learning_rate = 0.003
+num_epochs = 25
+learning_rate = 0.001
 
 # Set model parameters
-num_class = len(set([label for (text, label) in split_train]))
 vocab_size = vocab.get_vocab_size()
-embed_size = 15
+embed_size = 50
 hidden_size = 4
 num_layers = 2
 
 # Initialize the model
-model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, num_class, device)
+model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
 model.to(device)
 
 # Initialize weights for cross entropy loss [weight = (total / (num_per_class * num_classes))]
-weights = torch.tensor([(487235 / (305797 * 2)), (487235 / (181438 * 2))]).to(device)
+pos_weight = torch.tensor(305797 / 181438).to(device)
 
-# Initialize loss function, optimizer, and learning rate scheduler
-criterion = nn.CrossEntropyLoss(weight=weights)
+# Initialize loss function and optimizer
+criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 total_accu = None
@@ -315,8 +322,7 @@ model_params = {
     'vocab_size': vocab_size,
     'embed_size': embed_size,
     'hidden_size': hidden_size,
-    'num_layers': num_layers,
-    'num_class': num_class
+    'num_layers': num_layers
 }
 
 with open('model-params.pkl', 'wb') as f:

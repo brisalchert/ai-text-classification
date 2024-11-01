@@ -34,13 +34,12 @@ vocab_size = model_params['vocab_size']
 embed_size = model_params['embed_size']
 hidden_size = model_params['hidden_size']
 num_layers = model_params['num_layers']
-num_class = model_params['num_class']
 
 # Set device to CPU
 device = 'cpu'
 
 # Load the model
-model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, num_class, device)
+model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
 model.load_state_dict(torch.load('ai-text-model.pt', weights_only=True))
 model.eval()
 model.to('cpu')
@@ -53,7 +52,8 @@ def predict(essay, essay_pipeline):
         # Reshape text for batch-first tensor format
         text = text.reshape(1, -1)
         output = model(text, sequence_length)
-        return output.argmax(1).item()
+        predicted_label = (output >= 0).int()
+        return predicted_label.item()
 
 gen_essay_label = {0: 'human-generated', 1: 'AI-generated'}
 
