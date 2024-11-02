@@ -30,6 +30,9 @@ class VocabGenerator:
         freq_dist = FreqDist(all_tokens)
         threshold = 16
         vocab = [token for token in vocab if freq_dist[token] > threshold]
+        # Remove very common tokens from vocab
+        threshold = 10000
+        vocab = [token for token in vocab if freq_dist[token] < threshold]
         # Remove stopwords
         vocab = [token for token in vocab if token not in self.stop_words]
         # Stem remaining tokens
