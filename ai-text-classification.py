@@ -88,9 +88,11 @@ def train(dataloader, loss_criterion, optimizer, threshold, lambda_reg):
         optimizer.zero_grad()
         logit = model(text, lengths)
         loss = loss_criterion(logit, target)
-        # Calculate L1 regularization penalty
+        # Calculate L1 and L2 regularization penalties
         l1_norm = sum(p.abs().sum() for p in model.parameters())
+        l2_norm = sum(p.pow(2).sum() for p in model.parameters())
         loss += lambda_reg * l1_norm
+        loss += lambda_reg * 10 * l2_norm
         # Create predicted label as binary label with shape matching label from dataloader
         predicted_label = (torch.sigmoid(logit).reshape(-1) >= threshold).float()
         total_loss += loss.item()
@@ -131,9 +133,11 @@ def evaluate(dataloader, loss_criterion, threshold, lambda_reg):
             target = label.reshape(-1, 1)
             logit = model(text, lengths)
             loss = loss_criterion(logit, target)
-            # Calculate L1 regularization penalty
+            # Calculate L1 and L2 regularization penalties
             l1_norm = sum(p.abs().sum() for p in model.parameters())
+            l2_norm = sum(p.pow(2).sum() for p in model.parameters())
             loss += lambda_reg * l1_norm
+            loss += lambda_reg * 10 * l2_norm
             # Create predicted label as binary label with shape matching label from dataloader
             predicted_label = (torch.sigmoid(logit).reshape(-1) >= threshold).float()
             running_val_loss += loss.item()
