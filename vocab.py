@@ -7,7 +7,7 @@ from tokenizer import get_tokenizer
 class VocabGenerator:
     def __init__(self, essays=None, vocab=None):
         self.tokenizer = get_tokenizer()
-        self.stop_words = stopwords.words('english')
+        self.stop_words = stopwords.words("english")
         self.stemmer = PorterStemmer()
         if essays is not None:
             self.vocab = None

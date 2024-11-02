@@ -2,14 +2,14 @@ from tokenizer import get_tokenizer
 from nltk import PorterStemmer
 import nltk
 from nltk.corpus import stopwords
-nltk.download('stopwords')
+nltk.download("stopwords")
 
 class EssayPreprocessor:
     def __init__(self, vocab):
         self.tokenizer = get_tokenizer()
         self.vocab = vocab
         self.stemmer = PorterStemmer()
-        self.stop_words = set(stopwords.words('english'))
+        self.stop_words = set(stopwords.words("english"))
 
     def generate_tokens(self, essay):
         # Tokenize the essay

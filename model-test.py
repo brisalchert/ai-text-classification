@@ -10,18 +10,18 @@ from preprocessing import EssayPreprocessor
 from vocab import VocabGenerator
 
 # Load dataset
-ai_human_df = pd.read_json('dataset.jsonl', lines=True)
+ai_human_df = pd.read_json("dataset.jsonl", lines=True)
 ai_human_df = ai_human_df[["Answer", "Is_it_AI"]]
 
 # Remove entries with missing answers
-ai_human_df.dropna(subset=['Answer'], inplace=True)
+ai_human_df.dropna(subset=["Answer"], inplace=True)
 
 print(ai_human_df.head())
 print(ai_human_df.describe())
 print(ai_human_df.info())
 
 # Load vocabulary
-with open('vocab.pkl', 'rb') as f:
+with open("vocab.pkl", "rb") as f:
     vocab_dict = pickle.load(f)
 
 vocab = VocabGenerator(vocab=vocab_dict)
@@ -30,25 +30,25 @@ vocab = VocabGenerator(vocab=vocab_dict)
 preprocessor = EssayPreprocessor(vocab)
 
 # Load model parameters
-with open('model-params.pkl', 'rb') as f:
+with open("model-params.pkl", "rb") as f:
     model_params = pickle.load(f)
 
-vocab_size = model_params['vocab_size']
-embed_size = model_params['embed_size']
-hidden_size = model_params['hidden_size']
-num_layers = model_params['num_layers']
+vocab_size = model_params["vocab_size"]
+embed_size = model_params["embed_size"]
+hidden_size = model_params["hidden_size"]
+num_layers = model_params["num_layers"]
 
 # Set device to CPU
-device = 'cpu'
+device = "cpu"
 
 # Set prediction threshold
 threshold = 0.999962
 
 # Load the model
 model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
-model.load_state_dict(torch.load('ai-text-model.pt', weights_only=True))
+model.load_state_dict(torch.load("ai-text-model.pt", weights_only=True))
 model.eval()
-model.to('cpu')
+model.to("cpu")
 
 def predict(essay, essay_pipeline):
     with torch.no_grad():
@@ -64,7 +64,7 @@ def predict(essay, essay_pipeline):
         output = model(text, sequence_length)
         return output
 
-gen_essay_label = {0: 'human-generated', 1: 'AI-generated'}
+gen_essay_label = {0: "human-generated", 1: "AI-generated"}
 
 sample_essays = ai_human_df
 true_pos, true_neg = 0, 0
@@ -91,12 +91,12 @@ fpr, tpr, thresholds = roc_curve(labels, pred_labels)
 au_roc = roc_auc_score(labels, pred_labels)
 
 roc_df = pd.DataFrame({"fpr": fpr, "tpr": tpr, "threshold": thresholds})
-roc_df['cutoff'] = tpr - fpr
+roc_df["cutoff"] = tpr - fpr
 
 print(roc_df.sort_values("cutoff", ascending=False).head())
 print("AU ROC score: ", au_roc)
 
-plt.plot(fpr, tpr, marker='.')
+plt.plot(fpr, tpr, marker=".")
 plt.title("ROC Curve for Testing Data")
 plt.xlabel("False Positive Rate")
 plt.ylabel("True Positive Rate")
@@ -110,7 +110,7 @@ for i in tqdm(range(len(sample_essays))):
         ) >= threshold).int().item()]
 
         if true_label == pred_label:
-            if true_label == 'AI-generated':
+            if true_label == "AI-generated":
                 true_pos += 1
             else:
                 true_neg += 1
@@ -125,7 +125,7 @@ for i in tqdm(range(len(sample_essays))):
 count_correct = true_pos + true_neg
 valid_accuracy = count_correct / count_total
 
-print('\nValidation accuracy on random sample: {:8.3f}'.format(valid_accuracy))
-print('\nHuman predictions: {:5d}\nAI predictions: {:5d}'.format(count_human, count_ai))
-print('\nTrue negatives: {:5d}\nTrue positives: {:5d}'.format(true_neg, true_pos))
-print('\nHuman accuracy: {:8.3f}\nAI accuracy: {:8.3f}'.format((true_neg / count_human), (true_pos / count_ai)))
+print("\nValidation accuracy on random sample: {:8.3f}".format(valid_accuracy))
+print("\nHuman predictions: {:5d}\nAI predictions: {:5d}".format(count_human, count_ai))
+print("\nTrue negatives: {:5d}\nTrue positives: {:5d}".format(true_neg, true_pos))
+print("\nHuman accuracy: {:8.3f}\nAI accuracy: {:8.3f}".format((true_neg / count_human), (true_pos / count_ai)))
