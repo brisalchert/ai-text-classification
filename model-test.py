@@ -42,7 +42,7 @@ num_layers = model_params['num_layers']
 device = 'cpu'
 
 # Set prediction threshold
-threshold = 0.999849
+threshold = 0.999693
 
 # Load the model
 model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
