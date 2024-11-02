@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
 import torch.nn as nn
+from sklearn.metrics import roc_curve
 from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn.utils.rnn import pad_sequence
 from preprocessing import EssayPreprocessor
@@ -87,9 +88,9 @@ def train(dataloader, loss_criterion, optimizer, threshold, lambda_reg):
         optimizer.zero_grad()
         logit = model(text, lengths)
         loss = loss_criterion(logit, target)
-        # Calculate L2 normalization penalty
-        l2_norm = sum(p.pow(2).sum() for p in model.parameters())
-        loss += lambda_reg * l2_norm
+        # Calculate L1 regularization penalty
+        l1_norm = sum(p.abs().sum() for p in model.parameters())
+        loss += lambda_reg * l1_norm
         # Create predicted label as binary label with shape matching label from dataloader
         predicted_label = (torch.sigmoid(logit).reshape(-1) >= threshold).float()
         total_loss += loss.item()
@@ -130,9 +131,9 @@ def evaluate(dataloader, loss_criterion, threshold, lambda_reg):
             target = label.reshape(-1, 1)
             logit = model(text, lengths)
             loss = loss_criterion(logit, target)
-            # Calculate L2 normalization penalty
-            l2_norm = sum(p.pow(2).sum() for p in model.parameters())
-            loss += lambda_reg * l2_norm
+            # Calculate L1 regularization penalty
+            l1_norm = sum(p.abs().sum() for p in model.parameters())
+            loss += lambda_reg * l1_norm
             # Create predicted label as binary label with shape matching label from dataloader
             predicted_label = (torch.sigmoid(logit).reshape(-1) >= threshold).float()
             running_val_loss += loss.item()
@@ -159,7 +160,7 @@ def evaluate(dataloader, loss_criterion, threshold, lambda_reg):
     return avg_val_loss, avg_val_acc, precision, recall, f1
 
 # Generate sample from data
-sample_df = ai_human_df.sample(n=25600, random_state=42)
+sample_df = ai_human_df.sample(n=51200, random_state=42)
 
 # Create dataset object for iteration
 essay_dataset = EssayDataset(sample_df)
@@ -168,7 +169,7 @@ essay_dataset = EssayDataset(sample_df)
 batch_size = 64
 
 # Split data
-split_train, split_test = random_split(essay_dataset, [0.8, 0.2])
+split_train, split_test = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
 
 # Generate vocab using training data
 vocab = VocabGenerator(essays=split_train[:][0])
@@ -177,24 +178,36 @@ vocab = VocabGenerator(essays=split_train[:][0])
 preprocessor = EssayPreprocessor(vocab)
 
 # Create train and test DataLoaders
-train_dataloader = DataLoader(split_train, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
-test_dataloader = DataLoader(split_test, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
+train_dataloader = DataLoader(
+    split_train,
+    batch_size=batch_size,
+    shuffle=True,
+    collate_fn=collate_batch,
+    generator=torch.Generator().manual_seed(42)
+)
+test_dataloader = DataLoader(
+    split_test,
+    batch_size=batch_size,
+    shuffle=True,
+    collate_fn=collate_batch,
+    generator=torch.Generator().manual_seed(42)
+)
 
 # Define number of epochs and initial learning rate
-num_epochs = 10
+num_epochs = 20
 learning_rate = 0.001
 
 # Set model parameters
 vocab_size = vocab.get_vocab_size()
-embed_size = 100
+embed_size = 200
 hidden_size = 4
 num_layers = 2
 
 # Define decision threshold for classification
 threshold = 0.7
 
-# Define lambda_reg for L2 normalization
-l2_lambda = 1e-7
+# Define lambda_reg for L1 regularization
+l1_lambda = 1e-7
 
 # Initialize the model
 model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
@@ -223,9 +236,9 @@ for epoch in range(1, num_epochs + 1):
     epoch_start_time = time.time()
     # Train model
     current_train_loss, current_train_acc = train(train_dataloader, criterion, optimizer,
-                                                  threshold, l2_lambda)
+                                                  threshold, l1_lambda)
     current_val_loss, current_val_acc, precision, recall, f1 = evaluate(test_dataloader, criterion,
-                                                                        threshold, l2_lambda)
+                                                                        threshold, l1_lambda)
 
     train_losses.append(current_train_loss)
     train_accs.append(current_train_acc)
@@ -248,6 +261,35 @@ for epoch in range(1, num_epochs + 1):
         )
     )
     print('-' * 147)
+
+# Generate ROC Curve for validation data
+with torch.no_grad():
+    true_labels = []
+    predictions = []
+    for idx, (text, lengths, label) in enumerate(test_dataloader):
+        logits = model(text, lengths).cpu()
+        y_score = torch.sigmoid(logits).squeeze(-1).tolist()
+        predictions.extend(y_score)
+        true_labels.extend(label.cpu().tolist())
+
+    np.array(true_labels)
+    np.array(predictions)
+    fpr, tpr, thresholds = roc_curve(true_labels, predictions)
+
+    roc_df = pd.DataFrame({"fpr": fpr, "tpr": tpr, "threshold": thresholds})
+    roc_df['cutoff'] = tpr - fpr
+
+    optimal_index = np.argmax(tpr - fpr)
+    optimal_threshold = thresholds[optimal_index]
+    print("Optimal threshold: ", optimal_threshold)
+
+    print(roc_df.sort_values("cutoff", ascending=False))
+
+    plt.plot(fpr, tpr, marker='.')
+    plt.title("ROC Curve for Validation Data")
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.show()
 
 # Plot accuracy and loss for training and validation
 sns.set_palette('Set1')
