@@ -203,12 +203,12 @@ learning_rate = 0.001
 
 # Set model parameters
 vocab_size = vocab.get_vocab_size()
-embed_size = 200
-hidden_size = 4
-num_layers = 2
+embed_size = 100
+hidden_size = 2
+num_layers = 1
 
 # Define decision threshold for classification
-threshold = 0.7
+threshold = 0.5
 
 # Define lambda_reg for L1 regularization
 l1_lambda = 1e-7

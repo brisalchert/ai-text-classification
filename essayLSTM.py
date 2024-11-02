@@ -8,12 +8,9 @@ class EssayLSTM(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.embedding = nn.Embedding(vocab_size, embed_dim, sparse=False, padding_idx=0)
-        self.lstm = nn.LSTM(embed_dim, hidden_size, num_layers, batch_first=True, dropout=0.5)
-        self.fc_1 = nn.Linear(hidden_size, 128)
+        self.lstm = nn.LSTM(embed_dim, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, 1)
         self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.5)
-        self.fc_2 = nn.Linear(128, 64)
-        self.fc_3 = nn.Linear(64, 1)
         self.device = device
 
     def forward(self, sequences, lengths):
@@ -26,11 +23,6 @@ class EssayLSTM(nn.Module):
         # Propagate embeddings through LSTM layer
         out, (hn, cn) = self.lstm(packed, (h0, c0))
         out = hn[-1] # Get last hidden state
-        out = self.fc_1(out)
         out = self.relu(out)
-        out = self.dropout(out)
-        out = self.fc_2(out)
-        out = self.relu(out)
-        out = self.dropout(out)
-        out = self.fc_3(out)
+        out = self.fc(out)
         return out
