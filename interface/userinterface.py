@@ -1,4 +1,5 @@
 import pickle
+from time import sleep
 import torch
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -89,8 +90,13 @@ class MainWindow(QMainWindow):
             error_dialog.showMessage("Error: Invalid input for model.")
 
 # Load vocabulary
-with open('../vocab.pkl', 'rb') as f:
-    vocab_dict = pickle.load(f)
+try:
+    with open("vocab.pkl", "rb") as f:
+        vocab_dict = pickle.load(f)
+except FileNotFoundError:
+    print("Vocabulary file not found; run 'ai-text-classification.py' first to build model.")
+    sleep(1)
+    exit()
 
 vocab = VocabGenerator(vocab=vocab_dict)
 
@@ -98,25 +104,25 @@ vocab = VocabGenerator(vocab=vocab_dict)
 preprocessor = EssayPreprocessor(vocab)
 
 # Load model parameters
-with open('../model-params.pkl', 'rb') as f:
+with open("model-params.pkl", "rb") as f:
     model_params = pickle.load(f)
 
-vocab_size = model_params['vocab_size']
-embed_size = model_params['embed_size']
-hidden_size = model_params['hidden_size']
-num_layers = model_params['num_layers']
+vocab_size = model_params["vocab_size"]
+embed_size = model_params["embed_size"]
+hidden_size = model_params["hidden_size"]
+num_layers = model_params["num_layers"]
 
 # Define prediction threshold
 threshold = 0.999693
 
 # Set device to CPU
-device = 'cpu'
+device = "cpu"
 
 # Load the model
 model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
-model.load_state_dict(torch.load('../ai-text-model.pt', weights_only=True))
+model.load_state_dict(torch.load("ai-text-model.pt", weights_only=True))
 model.eval()
-model.to('cpu')
+model.to("cpu")
 
 def predict(essay, essay_pipeline, threshold):
     with torch.no_grad():
