@@ -113,7 +113,7 @@ hidden_size = model_params["hidden_size"]
 num_layers = model_params["num_layers"]
 
 # Define prediction threshold
-threshold = 0.999693
+threshold = 0.981974
 
 # Set device to CPU
 device = "cpu"
