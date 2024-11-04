@@ -1,5 +1,5 @@
 from nltk.corpus import stopwords
-from nltk.stem import PorterStemmer
+from nltk.stem import WordNetLemmatizer
 from nltk.probability import FreqDist
 from tqdm import tqdm
 from tokenizer import get_tokenizer
@@ -8,7 +8,7 @@ class VocabGenerator:
     def __init__(self, essays=None, vocab=None):
         self.tokenizer = get_tokenizer()
         self.stop_words = stopwords.words("english")
-        self.stemmer = PorterStemmer()
+        self.lemma = WordNetLemmatizer()
         if essays is not None:
             self.vocab = None
             self.generate_vocab(essays)
@@ -35,8 +35,8 @@ class VocabGenerator:
         vocab = [token for token in vocab if freq_dist[token] < threshold]
         # Remove stopwords
         vocab = [token for token in vocab if token not in self.stop_words]
-        # Stem remaining tokens
-        vocab = [self.stemmer.stem(token) for token in vocab]
+        # Lemmatize remaining tokens
+        vocab = [self.lemma.lemmatize(token) for token in vocab]
         # Remove duplicate tokens by converting back to set
         vocab = set(vocab)
         # Convert vocab list to index mapping
