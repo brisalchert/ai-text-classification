@@ -96,7 +96,7 @@ Improving model performance requires examining the many parameters utilized in c
 
 We can also improve model performance using regularization techniques, such as L1 and L2 regularization. These techniques create additional loss for the model during each training iteration based on the weights of the model's parameters, helping with feature selection or helping to reduce the risk of overfitting to the training data.
 
-Improving model performance by tuning each of these parameters is perhaps the most challenging part of creating a good model, but it is one of the most important steps because it directly influences the final testing accuracy of the model. So far, the model is about 60% accurate on testing data, leaving much room for improvement.
+Improving model performance by tuning each of these parameters is perhaps the most challenging part of creating a good model, but it is one of the most important steps because it directly influences the final testing accuracy of the model. So far, the model is about 62% accurate on testing data, leaving much room for improvement.
 
 ---
 
