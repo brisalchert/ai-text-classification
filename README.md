@@ -28,6 +28,8 @@ In order for the model to be successful in learning from the dataset, the input 
 
 Next, we visualize the class distribution of the dataset using matplotlib. The program saves this figure as `class-distribution.png` and shows that there are far more human-generated essays than AI-generated ones in the dataset. Understanding this imbalance is important for setting initial weights for Binary Cross-Entropy Loss later on.
 
+![class-distribution](https://github.com/user-attachments/assets/50db36ba-a5bf-46bb-8efc-3e4ca7772632)
+
 #### Essay Preprocessing Pipeline
 
 The functions for essay preprocessing are mainly contained within `preprocessing.py` and `vocab.py`. The `generate_vocab` function within `vocab.py` allows generating a vocabulary for the model based on essays from the training dataset. The `VocabGenerator` object uses a tokenizer from `tokenizer.py` to convert essays into a list of tokens which, for the purposes of this model, correspond to individual words within an essay. Both a Set containing unique vocabulary words and a list containing all essay tokens are created. The list of all essay tokens allows for the creation of a frequency distribution for all words in the dataset. Using this, we can remove any rare or very common words from the vocabulary that are unlikely to contribute much value to the model. We also remove "stopwords" from the vocabulary, which are meaningless words such as "and" or "the" that do not contribute to the meaning of a sentence. Lastly, we stem the tokens, which reduces each word to its most basic form, removing things like specific conjugations. The remaining vocabulary words are stored in a dictionary mapping each word to a unique index.
@@ -66,11 +68,16 @@ Once training is complete, plots for training/validation loss and accuracy as we
 
 One other plot is the receiver operating characteristic (ROC) curve, which plots the false positive rate versus the true positive rate for various "decision thresholds" for binary classification problems. The threshold refers to the value for which the output of the model must equal or exceed for the example to be classified as positive. For example, a threshold of `0.5` weights each binary class equally, whereas a threshold of `0.9` requires the model to be much more "confident" that an example is positive for it to be classified as such. Calculating the area under this curve helps to analyze model performance, since a higher area under the curve indicates a higher true positive rate for lower false positive rates. 
 
+![loss-accuracy](https://github.com/user-attachments/assets/06123808-8da2-499e-9d82-ad4818979e9a)
+![val-metrics](https://github.com/user-attachments/assets/c5d0028a-db80-4878-a88a-04e2a43b36d0)
+
 ---
 
 ## Testing
 
 With the model complete, we can test its performance using a separate dataset to evaluate how well it learned the important characteristics of AI-generated text that distinguish it from human-written text. At the end of training, the model's vocabulary, state dictionary, and parameters are saved to files for loading during testing. `model-test.py` loads these values and defines a function for predicting the class of new input using the model. The entire testing dataset is passed through the model, yielding a final accuracy value corresponding to the percentage of samples that were correctly classified. The testing accuracy acts as a final evaluation of the model's performance, which helps with determining the effectiveness of attempts to tune the model. We also plot the ROC curve for the testing data to use as another evaluation metric.
+
+![image](https://github.com/user-attachments/assets/eb015f2b-6cc0-4b5a-8d61-50c88c274bb6)
 
 ---
 
