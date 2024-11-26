@@ -1,9 +1,9 @@
 import pickle
 from time import sleep
 import torch
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import *
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import *
 from essayLSTM import EssayLSTM
 from preprocessing import EssayPreprocessor
 from vocab import VocabGenerator
@@ -16,7 +16,7 @@ class MainWindow(QMainWindow):
 
         title_label = QLabel("AI Text Classifier")
         title_label.setFont(QFont("Bahnschrift", 40))
-        title_label.setAlignment(Qt.AlignHCenter)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("color: white;")
 
         self.input_textbox = QTextEdit()
@@ -59,17 +59,17 @@ class MainWindow(QMainWindow):
         """)
 
         output_layout = QHBoxLayout()
-        output_layout.addItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        output_layout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
         output_layout.addWidget(output_label)
         output_layout.addWidget(self.output)
-        output_layout.addItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        output_layout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
         layout = QVBoxLayout()
         layout.addWidget(title_label)
         layout.addLayout(textbox_layout)
         layout.addLayout(button_layout)
         layout.addLayout(output_layout)
-        layout.setAlignment(Qt.AlignHCenter)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.setFixedSize(600, 450)
 
