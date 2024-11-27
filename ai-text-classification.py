@@ -11,8 +11,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
 import torch.nn as nn
-from sklearn.metrics import roc_curve
-from torch.utils.data import Dataset, DataLoader, random_split
+from sklearn.metrics import roc_curve, accuracy_score, recall_score, precision_score, f1_score
+from sklearn.model_selection import KFold
+from torch.utils.data import Dataset, DataLoader, random_split, Subset
 from torch.nn.utils.rnn import pad_sequence
 from preprocessing import EssayPreprocessor
 import time
@@ -75,96 +76,227 @@ def collate_batch(batch):
     # Send tensors to GPU
     return padded_sequences.to(device), sequence_lengths.to("cpu"), label_list.to(device) # lengths must be on CPU
 
-def train(dataloader, loss_criterion, optimizer, threshold, lambda_reg):
+def train(model, dataloader, optimizer, threshold=None, lambda_reg=None, epoch=None, loss_criterion=None, logging=False):
+    """
+    Trains a machine learning model with a given optimizer on the formatted essay data for one epoch. Can
+    optionally output logging information to the console.
+    :param model: The machine learning model to train.
+    :param dataloader: The essay Dataloader with batches of preprocessed essays, essay lengths, and essay labels.
+    :param optimizer: The optimizer to be used for training.
+    :param threshold: The decision threshold for binary classification of output logits. 0.5 if None.
+    :param lambda_reg: Alpha value for L1 regularization. 10 * alpha applied to L2 regularization. If None, no
+    regularization is applied.
+    :param epoch: The current epoch for training, if logging is enabled.
+    :param loss_criterion: A custom loss criterion function, or BCEWithLogitsLoss if None.
+    :param logging: If true, logs information to the console during training.
+    :return: The true labels, output logits, and average loss for each batch.
+    """
+    # Define output variables
+    y_true = []
+    y_pred_proba = []
+    losses = []
+
+    # Set loss_criterion if necessary
+    if loss_criterion is None:
+        loss_criterion = nn.BCEWithLogitsLoss()
+
+    # Set threshold if necessary
+    if threshold is None:
+        threshold = 0.5
+
+    # Set model to training mode
     model.train()
-    total_acc, total_loss, total_count = 0, 0, 0
-    running_train_loss, running_train_acc = 0, 0
-    log_interval = len(dataloader) / 5
+
+    # Set log interval for output
+    log_interval = len(dataloader) // 5
     start_time = time.time()
 
-    for idx, (text, lengths, label) in enumerate(dataloader):
-        #Prepare target from label
-        target = label.reshape(-1, 1)
+    # Prepare batch metric variables
+    batch_count = 0
+    batch_loss_sum = 0
+    batch_accuracy_sum = 0
+
+    # Loop through training data
+    for index, (essays, essay_lengths, essay_labels) in enumerate(dataloader):
+        # Prepare targets from labels
+        targets = essay_labels.reshape(-1, 1)
+        # Zero gradient from prior iterations
         optimizer.zero_grad()
-        logit = model(text, lengths)
-        loss = loss_criterion(logit, target)
-        # Calculate L1 and L2 regularization penalties
-        l1_norm = sum(p.abs().sum() for p in model.parameters())
-        l2_norm = sum(p.pow(2).sum() for p in model.parameters())
-        loss += lambda_reg * l1_norm
-        loss += lambda_reg * 10 * l2_norm
-        # Create predicted label as binary label with shape matching label from dataloader
-        predicted_label = (torch.sigmoid(logit).reshape(-1) >= threshold).float()
-        total_loss += loss.item()
-        running_train_loss += loss.item()
-        loss.backward()
-        # Clip to avoid exploding gradient
-        nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
-        optimizer.step()
-        total_acc += (predicted_label == label).sum().item()
-        running_train_acc += (predicted_label == label).sum().item()
-        total_count += label.size(0)
-        if (idx + 1) % log_interval == 0 and idx > 0:
-            elapsed = time.time() - start_time
-            print(
-                "| epoch {:3d} | {:5d}/{:5d} batches "
-                "| accuracy {:8.3f} "
-                "| loss {:8.5f}"
-                "| time {:8.3f}s |".format(
-                    epoch, (idx + 1), len(dataloader), total_acc / total_count, total_loss / total_count, elapsed
-                )
-            )
-            total_acc, total_loss, total_count = 0, 0, 0
-            start_time = time.time()
-
-    avg_train_loss = running_train_loss / (len(dataloader) * dataloader.batch_size)
-    avg_train_acc = running_train_acc / (len(dataloader) * dataloader.batch_size)
-    return avg_train_loss, avg_train_acc
-
-def evaluate(dataloader, loss_criterion, threshold, lambda_reg):
-    model.eval()
-    running_val_loss, running_val_acc = 0, 0
-    true_labels = []
-    predicted_labels = []
-
-    with torch.no_grad():
-        for idx, (text, lengths, label) in enumerate(dataloader):
-            # Prepare target from label
-            target = label.reshape(-1, 1)
-            logit = model(text, lengths)
-            loss = loss_criterion(logit, target)
+        # Get model outputs and loss
+        logits = model(essays, essay_lengths)
+        loss = loss_criterion(logits, targets)
+        if lambda_reg is not None:
             # Calculate L1 and L2 regularization penalties
             l1_norm = sum(p.abs().sum() for p in model.parameters())
             l2_norm = sum(p.pow(2).sum() for p in model.parameters())
             loss += lambda_reg * l1_norm
             loss += lambda_reg * 10 * l2_norm
-            # Create predicted label as binary label with shape matching label from dataloader
-            predicted_label = (torch.sigmoid(logit).reshape(-1) >= threshold).float()
-            running_val_loss += loss.item()
-            running_val_acc += (predicted_label == label).sum().item()
-            # Add true and predicted labels to lists
-            true_labels.append(label)
-            predicted_labels.append(predicted_label)
+        # Create predicted labels as binary labels with shape matching labels from dataloader
+        predicted_labels = (torch.sigmoid(logits).reshape(-1) >= threshold).float()
+        # Apply backpropagation
+        loss.backward()
+        # Clip to avoid exploding gradient
+        nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
+        # Step the optimizer forward
+        optimizer.step()
+        # Log training information
+        if logging:
+            # Increment batch metric variables
+            batch_count += 1
+            batch_loss_sum += loss.item()
+            batch_accuracy_sum += accuracy_score(targets.tolist(), predicted_labels.tolist())
 
-    # Convert true and predicted label lists to tensors
-    true_labels = torch.cat(true_labels, dim=0)
-    predicted_labels = torch.cat(predicted_labels, dim=0)
+            if (index + 1) % log_interval == 0 and index > 0:
+                # Calculate batch metrics
+                batch_accuracy_avg = batch_accuracy_sum / batch_count
+                batch_loss_avg = batch_loss_sum / batch_count
 
-    # Calculate confusion matrix values for precision, recall, and F1 score
-    true_positives = ((true_labels == 1) & (predicted_labels == 1)).sum().item()
-    false_positives = ((true_labels == 0) & (predicted_labels == 1)).sum().item()
-    false_negatives = ((true_labels == 1) & (predicted_labels == 0)).sum().item()
+                # Calculate elapsed time
+                elapsed = time.time() - start_time
+                print(
+                    "| epoch {:3d} | {:5d}/{:5d} batches "
+                    "| accuracy {:8.3f} "
+                    "| loss {:8.5f}"
+                    "| time {:8.3f}s |".format(
+                        epoch, (index + 1), len(dataloader), batch_accuracy_avg, batch_loss_avg, elapsed
+                    )
+                )
 
-    precision = true_positives / (true_positives + false_positives) if true_positives + false_positives > 0 else 0
-    recall = true_positives / (true_positives + false_negatives) if true_positives + false_negatives > 0 else 0
-    f1 = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0
+                # Reset timer
+                start_time = time.time()
 
-    avg_val_loss = running_val_loss / (len(dataloader) * dataloader.batch_size)
-    avg_val_acc = running_val_acc / (len(dataloader) * dataloader.batch_size)
-    return avg_val_loss, avg_val_acc, precision, recall, f1
+                # Reset batch metrics
+                batch_count = 0
+                batch_loss_sum = 0
+                batch_accuracy_sum = 0
+
+        # Append model results to output variables
+        y_true.append(targets)
+        y_pred_proba.append(logits.detach())
+        losses.append(loss.item())
+
+    return y_true, y_pred_proba, losses
+
+def evaluate(model, dataloader, loss_criterion=None, lambda_reg=None):
+    """
+    Evaluates a machine learning model on the given validation data.
+    :param model: The machine learning model to evaluate.
+    :param dataloader: The essay Dataloader with batches of preprocessed essays, essay lengths, and essay labels.
+    :param loss_criterion: A custom loss criterion function, or BCEWithLogitsLoss if None.
+    :param lambda_reg: Alpha value for L1 regularization. 10 * alpha applied to L2 regularization. If None, no
+    regularization is applied.
+    :return: The true labels, output logits, and average loss for each batch.
+    """
+    # Define output variables
+    y_true = []
+    y_pred_proba = []
+    losses = []
+
+    # Set loss_criterion if necessary
+    if loss_criterion is None:
+        loss_criterion = nn.BCEWithLogitsLoss()
+
+    # Set model to evaluation mode
+    model.eval()
+
+    # Ensure no gradient modification during evaluation
+    with torch.no_grad():
+        for index, (essays, essay_lengths, essay_labels) in enumerate(dataloader):
+            # Prepare target from label
+            targets = essay_labels.reshape(-1, 1)
+            # Get model outputs and loss
+            logits = model(essays, essay_lengths)
+            loss = loss_criterion(logits, targets)
+            if lambda_reg is not None:
+                # Calculate L1 and L2 regularization penalties
+                l1_norm = sum(p.abs().sum() for p in model.parameters())
+                l2_norm = sum(p.pow(2).sum() for p in model.parameters())
+                loss += lambda_reg * l1_norm
+                loss += lambda_reg * 10 * l2_norm
+            # Append model results to output variables
+            y_true.append(targets)
+            y_pred_proba.append(logits.detach())
+            losses.append(loss.item())
+
+    return y_true, y_pred_proba, losses
+
+def fit_evaluate(model, train_loader, val_loader, epochs, optimizer, criterion=None,
+                 threshold=None, l1_lambda=None, logging=False):
+    """
+    Trains and evaluates a machine learning model on the given essay data. Can optionally print logging information
+    to the console during training and after each epoch.
+    :param model: The machine learning model to train.
+    :param train_loader: The preprocessed essay training data as a DataLoader.
+    :param val_loader: The preprocessed essay validation data as a DataLoader.
+    :param epochs: The number of epochs to train the model for.
+    :param optimizer: The optimizer to use during training.
+    :param criterion: The loss criterion to use. If None, uses BCEWithLogitsLoss.
+    :param threshold: Decision threshold for binary classification. If None, uses 0.5.
+    :param l1_lambda: Alpha value for L1 regularization. 10 * Alpha applied to L2 regularization. If None,
+    no regularization is applied.
+    :param logging: If true, outputs logging information to console during training and after each epoch.
+    :return: A dictionary of two dictionaries with the outputs of training and validation for each epoch. Each
+    dictionary contains three elements for each epoch: a nested list of true labels for each batch, a nested list
+    of predicted labels for each batch, and a list of average losses for each batch.
+    """
+    # Initialize output variables
+    train_metrics = {}
+    validation_metrics = {}
+
+    for epoch in range(1, epochs + 1):
+        epoch_start_time = time.time()
+        # Train model
+        train_metrics[epoch] = train(
+            model, train_loader, optimizer,
+            threshold=threshold,
+            loss_criterion=criterion,
+            lambda_reg=l1_lambda,
+            epoch=epoch,
+            logging=logging
+        )
+        # Evaluate the model
+        validation_metrics[epoch] = evaluate(
+            model, val_loader,
+            loss_criterion=criterion
+        )
+
+        # Print epoch statistics with validation accuracy
+        if logging:
+            # Calculate validation accuracy and loss
+            targets_list = validation_metrics[epoch][0]
+            pred_list = validation_metrics[epoch][1]
+
+            val_accuracy_sum = 0
+
+            # Set threshold if necessary
+            if threshold is None:
+                threshold = 0.5
+
+            for y_true, y_pred_proba in zip(targets_list, pred_list):
+                y_true = y_true.cpu()
+                y_pred = (torch.sigmoid(y_pred_proba).reshape(-1) >= threshold).float().cpu()
+                val_accuracy_sum += accuracy_score(y_true, y_pred)
+
+            val_accuracy_avg = val_accuracy_sum / len(targets_list)
+            val_loss_avg = np.mean(validation_metrics[epoch][2])
+
+            print("-" * 93)
+            print(
+                "| end of epoch {:3d} | time: {:5.2f}s | "
+                "validation accuracy {:8.3f} | "
+                "validation loss {:8.5f} |".format(
+                    epoch, time.time() - epoch_start_time, val_accuracy_avg, val_loss_avg
+                )
+            )
+            print("-" * 93)
+
+    return {
+        "train_metrics": train_metrics,
+        "val_metrics": validation_metrics
+    }
 
 # Generate sample from data
-sample_df = ai_human_df.sample(n=51200, random_state=42)
+sample_df = ai_human_df.sample(n=40000, random_state=42)
 
 # Create dataset object for iteration
 essay_dataset = EssayDataset(sample_df)
@@ -174,6 +306,9 @@ batch_size = 64
 
 # Split data
 split_train, split_test = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
+
+# Create KFold object
+kfold = KFold(n_splits=5, shuffle=True, random_state=42)
 
 # Generate vocab using training data
 vocab = VocabGenerator(essays=split_train[:][0])
@@ -198,12 +333,12 @@ test_dataloader = DataLoader(
 )
 
 # Define number of epochs and initial learning rate
-num_epochs = 20
+num_epochs = 5
 learning_rate = 0.001
 
 # Set model parameters
 vocab_size = vocab.get_vocab_size()
-embed_size = 100
+embed_size = 25
 hidden_size = 2
 num_layers = 1
 
@@ -213,65 +348,73 @@ threshold = 0.5
 # Define lambda_reg for L1 regularization
 l1_lambda = 1e-7
 
-# Initialize the model
-model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
-model.to(device)
+total_accu = None
+
+print("Starting training for cross-validation...")
+
+# Fit model on cross-validation set
+for fold, (train_idx, val_idx) in enumerate(kfold.split(split_train)):
+    print(f"FOLD {fold + 1}:")
+
+    train_loader_cv = DataLoader(
+        Subset(essay_dataset, train_idx),
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_batch,
+        generator = torch.Generator().manual_seed(42)
+    )
+    val_loader_cv = DataLoader(
+        Subset(essay_dataset, val_idx),
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_batch,
+        generator=torch.Generator().manual_seed(42)
+    )
+
+    # Initialize model for cross-validation
+    cv_model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
+    cv_model.to(device)
+
+    # Initialize weights for cross entropy loss [weight = (total / (num_per_class * num_classes))]
+    pos_weight = torch.tensor(305797 / 181438).to(device)
+
+    # Initialize loss function and optimizer
+    cv_criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    cv_optimizer = torch.optim.Adam(cv_model.parameters(), lr=learning_rate)
+
+    # Fit the model
+    fit_evaluate(
+        cv_model, train_loader_cv, val_loader_cv, num_epochs, cv_optimizer,
+        l1_lambda=l1_lambda,
+        logging=True
+    )
+
+# Initialize the model for non-cross-validation
+lstm_model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
+lstm_model.to(device)
 
 # Initialize weights for cross entropy loss [weight = (total / (num_per_class * num_classes))]
 pos_weight = torch.tensor(305797 / 181438).to(device)
 
 # Initialize loss function and optimizer
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+optimizer = torch.optim.Adam(lstm_model.parameters(), lr=learning_rate)
 
-total_accu = None
+print("Training on full train data...")
 
-train_losses = []
-train_accs = []
-val_losses = []
-val_accs = []
-val_precisions = []
-val_recalls = []
-val_f1s = []
-
-print("Starting Training...")
-
-for epoch in range(1, num_epochs + 1):
-    epoch_start_time = time.time()
-    # Train model
-    current_train_loss, current_train_acc = train(train_dataloader, criterion, optimizer,
-                                                  threshold, l1_lambda)
-    current_val_loss, current_val_acc, precision, recall, f1 = evaluate(test_dataloader, criterion,
-                                                                        threshold, l1_lambda)
-
-    train_losses.append(current_train_loss)
-    train_accs.append(current_train_acc)
-    val_losses.append(current_val_loss)
-    val_accs.append(current_val_acc)
-    val_precisions.append(precision)
-    val_recalls.append(recall)
-    val_f1s.append(f1)
-
-    # Print epoch statistics with validation accuracy
-    print("-" * 147)
-    print(
-        "| end of epoch {:3d} | time: {:5.2f}s | "
-        "validation accuracy {:8.3f} | "
-        "validation loss {:8.5f} | "
-        "precision {:8.3f} | "
-        "recall {:8.3f} | "
-        "f1 {:8.3f} |".format(
-            epoch, time.time() - epoch_start_time, current_val_acc, current_val_loss, precision, recall, f1
-        )
-    )
-    print("-" * 147)
+# Fit model on non-cross-validated training set
+metrics = fit_evaluate(
+    lstm_model, train_dataloader, test_dataloader, num_epochs, optimizer,
+    l1_lambda=l1_lambda,
+    logging=True
+)
 
 # Generate ROC Curve for validation data
 with torch.no_grad():
     true_labels = []
     predictions = []
     for idx, (text, lengths, label) in enumerate(test_dataloader):
-        logits = model(text, lengths).cpu()
+        logits = lstm_model(text, lengths).cpu()
         y_score = torch.sigmoid(logits).squeeze(-1).tolist()
         predictions.extend(y_score)
         true_labels.extend(label.cpu().tolist())
@@ -295,6 +438,74 @@ with torch.no_grad():
     plt.ylabel("True Positive Rate")
     plt.show()
 
+# Calculate training metrics for plotting
+train_accuracies = []
+train_losses = []
+
+for epoch in metrics["train_metrics"].keys():
+    accuracy_sum = 0
+
+    targets = metrics["train_metrics"][epoch][0]
+    predictions = metrics["train_metrics"][epoch][1]
+
+    for y_true, y_pred_proba in zip(targets, predictions):
+        y_true = y_true.cpu()
+        y_pred = (torch.sigmoid(y_pred_proba).reshape(-1) >= threshold).float().cpu()
+
+        accuracy_sum += accuracy_score(y_true, y_pred)
+
+    losses = metrics["train_metrics"][epoch][2]
+
+    # Epoch accuracy is sum of batch accuracies divided by number of batches
+    epoch_accuracy = accuracy_sum / len(metrics["train_metrics"][epoch][0])
+    epoch_loss = np.mean(losses)
+
+    # Append epoch accuracy and loss to the lists
+    train_accuracies.append(epoch_accuracy)
+    train_losses.append(epoch_loss)
+
+# Calculate validation metrics for plotting
+val_accuracies = []
+val_losses = []
+val_recalls = []
+val_precisions = []
+val_f1s = []
+
+for epoch in metrics["val_metrics"].keys():
+    accuracy_sum = 0
+    recall_sum = 0
+    precision_sum = 0
+    f1_sum = 0
+
+    targets = metrics["val_metrics"][epoch][0]
+    predictions = metrics["val_metrics"][epoch][1]
+
+    for y_true, y_pred_proba in zip(targets, predictions):
+        y_true = y_true.cpu()
+        y_pred = (torch.sigmoid(y_pred_proba).reshape(-1) >= threshold).float().cpu()
+
+        accuracy_sum += accuracy_score(y_true, y_pred)
+        recall_sum += recall_score(y_true, y_pred)
+        precision_sum += precision_score(y_true, y_pred)
+        f1_sum += f1_score(y_true, y_pred)
+
+    losses = metrics["val_metrics"][epoch][2]
+    batch_count = len(metrics["val_metrics"][epoch][0])
+
+    # Calculate epoch validation metrics
+    epoch_accuracy = accuracy_sum / batch_count
+    epoch_loss = np.mean(losses)
+    epoch_recall = recall_sum / batch_count
+    epoch_precision = precision_sum / batch_count
+    epoch_f1 = f1_sum / batch_count
+
+    # Append epoch validation metrics to lists
+    val_accuracies.append(epoch_accuracy)
+    val_losses.append(epoch_loss)
+    val_recalls.append(epoch_recall)
+    val_precisions.append(epoch_precision)
+    val_f1s.append(epoch_f1)
+
 # Plot accuracy and loss for training and validation
 sns.set_palette("Set1")
 fig, ax = plt.subplots(2, 1, sharex=True)
@@ -310,13 +521,13 @@ ax[0].set_xticks(x_ticks)
 loss_df = pd.DataFrame({
     "Epoch": x_range,
     "Training Loss": train_losses,
-    "Validation Loss": val_losses
+    "Validation Loss": val_losses,
 })
 
 acc_df = pd.DataFrame({
     "Epoch": x_range,
-    "Training Accuracy": train_accs,
-    "Validation Accuracy": val_accs
+    "Training Accuracy": train_accuracies,
+    "Validation Accuracy": val_accuracies,
 })
 
 # Convert DataFrames from wide to long format (one column for all measurements)
@@ -375,8 +586,8 @@ with open("vocab.pkl", "wb") as f:
     # noinspection PyTypeChecker
     pickle.dump(vocab.get_vocab_dictionary(), f)
 
-# Save the model"s state dictionary
-torch.save(model.state_dict(), "ai-text-model.pt")
+# Save the model's state dictionary
+torch.save(lstm_model.state_dict(), "ai-text-model.pt")
 
 # Save model parameters
 model_params = {
