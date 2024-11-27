@@ -385,6 +385,7 @@ for fold, (train_idx, val_idx) in enumerate(kfold.split(split_train)):
     # Fit the model
     fit_evaluate(
         cv_model, train_loader_cv, val_loader_cv, num_epochs, cv_optimizer,
+        criterion=cv_criterion,
         l1_lambda=l1_lambda,
         logging=True
     )
@@ -405,6 +406,7 @@ print("Training on full train data...")
 # Fit model on non-cross-validated training set
 metrics = fit_evaluate(
     lstm_model, train_dataloader, test_dataloader, num_epochs, optimizer,
+    criterion=criterion,
     l1_lambda=l1_lambda,
     logging=True
 )
