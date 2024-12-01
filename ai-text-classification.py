@@ -295,6 +295,71 @@ def fit_evaluate(model, train_loader, val_loader, epochs, optimizer, criterion=N
         "val_metrics": validation_metrics
     }
 
+def get_loss_accuracy(metrics_dict: dict):
+    accuracies = []
+    losses = []
+
+    for epoch in metrics_dict.keys():
+        accuracy_sum = 0
+
+        targets = metrics_dict[epoch][0]
+        predicted = metrics_dict[epoch][1]
+
+        for y_true, y_pred_proba in zip(targets, predicted):
+            y_true = y_true.cpu()
+            y_pred = (torch.sigmoid(y_pred_proba).reshape(-1) >= threshold).float().cpu()
+
+            accuracy_sum += accuracy_score(y_true, y_pred)
+
+        loss_values = metrics_dict[epoch][2]
+
+        # Epoch accuracy is sum of batch accuracies divided by number of batches
+        epoch_accuracy = accuracy_sum / len(metrics_dict[epoch][0])
+        epoch_loss = np.mean(loss_values)
+
+        # Append epoch accuracy and loss to the lists
+        accuracies.append(epoch_accuracy)
+        losses.append(epoch_loss)
+
+    # Return lists
+    return accuracies, losses
+
+def get_recall_prec_f1(metrics_dict: dict):
+    recalls = []
+    precisions = []
+    f1s = []
+
+    for epoch in metrics_dict.keys():
+        recall_sum = 0
+        precision_sum = 0
+        f1_sum = 0
+
+        targets = metrics_dict[epoch][0]
+        predicted = metrics_dict[epoch][1]
+
+        for y_true, y_pred_proba in zip(targets, predicted):
+            y_true = y_true.cpu()
+            y_pred = (torch.sigmoid(y_pred_proba).reshape(-1) >= threshold).float().cpu()
+
+            recall_sum += recall_score(y_true, y_pred)
+            precision_sum += precision_score(y_true, y_pred)
+            f1_sum += f1_score(y_true, y_pred)
+
+        batch_count = len(metrics_dict[epoch][0])
+
+        # Calculate epoch validation metrics
+        epoch_recall = recall_sum / batch_count
+        epoch_precision = precision_sum / batch_count
+        epoch_f1 = f1_sum / batch_count
+
+        # Append epoch validation metrics to lists
+        recalls.append(epoch_recall)
+        precisions.append(epoch_precision)
+        f1s.append(epoch_f1)
+
+    # Return lists
+    return recalls, precisions, f1s
+
 # Generate sample from data
 sample_df = ai_human_df.sample(n=40000, random_state=42)
 
@@ -441,72 +506,11 @@ with torch.no_grad():
     plt.show()
 
 # Calculate training metrics for plotting
-train_accuracies = []
-train_losses = []
-
-for epoch in metrics["train_metrics"].keys():
-    accuracy_sum = 0
-
-    targets = metrics["train_metrics"][epoch][0]
-    predictions = metrics["train_metrics"][epoch][1]
-
-    for y_true, y_pred_proba in zip(targets, predictions):
-        y_true = y_true.cpu()
-        y_pred = (torch.sigmoid(y_pred_proba).reshape(-1) >= threshold).float().cpu()
-
-        accuracy_sum += accuracy_score(y_true, y_pred)
-
-    losses = metrics["train_metrics"][epoch][2]
-
-    # Epoch accuracy is sum of batch accuracies divided by number of batches
-    epoch_accuracy = accuracy_sum / len(metrics["train_metrics"][epoch][0])
-    epoch_loss = np.mean(losses)
-
-    # Append epoch accuracy and loss to the lists
-    train_accuracies.append(epoch_accuracy)
-    train_losses.append(epoch_loss)
+train_accuracies, train_losses = get_loss_accuracy(metrics["train_metrics"])
 
 # Calculate validation metrics for plotting
-val_accuracies = []
-val_losses = []
-val_recalls = []
-val_precisions = []
-val_f1s = []
-
-for epoch in metrics["val_metrics"].keys():
-    accuracy_sum = 0
-    recall_sum = 0
-    precision_sum = 0
-    f1_sum = 0
-
-    targets = metrics["val_metrics"][epoch][0]
-    predictions = metrics["val_metrics"][epoch][1]
-
-    for y_true, y_pred_proba in zip(targets, predictions):
-        y_true = y_true.cpu()
-        y_pred = (torch.sigmoid(y_pred_proba).reshape(-1) >= threshold).float().cpu()
-
-        accuracy_sum += accuracy_score(y_true, y_pred)
-        recall_sum += recall_score(y_true, y_pred)
-        precision_sum += precision_score(y_true, y_pred)
-        f1_sum += f1_score(y_true, y_pred)
-
-    losses = metrics["val_metrics"][epoch][2]
-    batch_count = len(metrics["val_metrics"][epoch][0])
-
-    # Calculate epoch validation metrics
-    epoch_accuracy = accuracy_sum / batch_count
-    epoch_loss = np.mean(losses)
-    epoch_recall = recall_sum / batch_count
-    epoch_precision = precision_sum / batch_count
-    epoch_f1 = f1_sum / batch_count
-
-    # Append epoch validation metrics to lists
-    val_accuracies.append(epoch_accuracy)
-    val_losses.append(epoch_loss)
-    val_recalls.append(epoch_recall)
-    val_precisions.append(epoch_precision)
-    val_f1s.append(epoch_f1)
+val_accuracies, val_losses = get_loss_accuracy(metrics["val_metrics"])
+val_precisions, val_recalls, val_f1s = get_recall_prec_f1(metrics["val_metrics"])
 
 # Plot accuracy and loss for training and validation
 sns.set_palette("Set1")
