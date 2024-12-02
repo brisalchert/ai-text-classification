@@ -12,43 +12,9 @@ import seaborn as sns
 import torch
 import torch.nn as nn
 from sklearn.metrics import roc_curve, accuracy_score, recall_score, precision_score, f1_score
-from sklearn.model_selection import KFold
-from torch.utils.data import Dataset, DataLoader, random_split, Subset
+from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
-from preprocessing import EssayPreprocessor
 import time
-from vocab import VocabGenerator
-from essayLSTM import EssayLSTM
-import pickle
-
-# Load dataset from csv
-ai_human_df = pd.read_csv("ai_human.csv")
-
-# Set device to CUDA GPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Fix class label data type
-ai_human_df["generated"] = ai_human_df["generated"].astype(int)
-
-# Remove short essays from dataset
-ai_human_df = ai_human_df[~(ai_human_df["text"].str.len() <= 50)]
-
-# Preview data
-print(ai_human_df.head())
-print(ai_human_df.info())
-
-# Visualize distribution of data
-sns.set_style("darkgrid")
-sns.set_context("notebook")
-ax = sns.countplot(x=ai_human_df["generated"])
-ax.set_xticks([0, 1], ["Human-Generated", "AI-Generated"])
-plt.title("Class Distribution")
-plt.xlabel("Class")
-plt.ylabel("Count")
-plt.tight_layout()
-plt.show()
-fig = ax.get_figure()
-fig.savefig("class-distribution.png")
 
 # Create Dataset class for essays
 class EssayDataset(Dataset):
@@ -60,30 +26,32 @@ class EssayDataset(Dataset):
     def __getitem__(self, idx):
         return self.essays.iloc[idx], self.labels.iloc[idx]
 
-def collate_batch(batch):
-    model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    text_list, label_list = [], []
-    for _text, _label in batch:
-        # Append label (no processing necessary)
-        label_list.append(_label)
-        # Process and append text
-        processed_text = preprocessor.essay_processing_pipeline(_text)
-        processed_text = torch.tensor(processed_text, dtype=torch.int64)
-        text_list.append(processed_text)
-    label_list = torch.tensor(label_list, dtype=torch.float)
-    # Pad tensors so that batch elements are equal length
-    padded_sequences = pad_sequence(text_list, batch_first=True, padding_value=0)
-    sequence_lengths = torch.tensor([len(text) for text in text_list])
-    # Send tensors to GPU
-    return padded_sequences.to(model_device), sequence_lengths.to("cpu"), label_list.to(model_device) # lengths must be on CPU
+def create_collate_fn(preprocessor):
+    def collate_batch(batch):
+        model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        text_list, label_list = [], []
+        for _text, _label in batch:
+            # Append label (no processing necessary)
+            label_list.append(_label)
+            # Process and append text
+            processed_text = preprocessor.essay_processing_pipeline(_text)
+            processed_text = torch.tensor(processed_text, dtype=torch.int64)
+            text_list.append(processed_text)
+        label_list = torch.tensor(label_list, dtype=torch.float)
+        # Pad tensors so that batch elements are equal length
+        padded_sequences = pad_sequence(text_list, batch_first=True, padding_value=0)
+        sequence_lengths = torch.tensor([len(text) for text in text_list])
+        # Send tensors to GPU
+        return padded_sequences.to(model_device), sequence_lengths.to("cpu"), label_list.to(model_device) # lengths must be on CPU
+    return collate_batch
 
-def get_dataloaders(training_split, testing_split, batch_size):
+def get_dataloaders(training_split, testing_split, batch_size, preprocessor):
     # Create training DataLoader
     train_dataloader = DataLoader(
         training_split,
         batch_size=batch_size,
         shuffle=True,
-        collate_fn=collate_batch,
+        collate_fn=create_collate_fn(preprocessor),
         generator=torch.Generator().manual_seed(42)
     )
 
@@ -92,7 +60,7 @@ def get_dataloaders(training_split, testing_split, batch_size):
         testing_split,
         batch_size=batch_size,
         shuffle=True,
-        collate_fn=collate_batch,
+        collate_fn=create_collate_fn(preprocessor),
         generator=torch.Generator().manual_seed(42)
     )
 
@@ -318,7 +286,7 @@ def fit_evaluate(model, train_loader, val_loader, epochs, optimizer, criterion=N
         "val_metrics": validation_metrics
     }
 
-def get_loss_accuracy(metrics_dict: dict):
+def get_loss_accuracy(metrics_dict: dict, threshold):
     accuracies = []
     losses = []
 
@@ -347,7 +315,7 @@ def get_loss_accuracy(metrics_dict: dict):
     # Return lists
     return accuracies, losses
 
-def get_recall_prec_f1(metrics_dict: dict):
+def get_recall_prec_f1(metrics_dict: dict, threshold):
     recalls = []
     precisions = []
     f1s = []
@@ -402,7 +370,7 @@ def plot_roc_curve(y_true, y_pred_proba):
     plt.show()
 
 
-def plot_loss_accuracy(train_losses, val_losses, train_accuracies, val_accuracies):
+def plot_loss_accuracy(train_losses, val_losses, train_accuracies, val_accuracies, num_epochs):
     sns.set_palette("Set1")
     fig, ax = plt.subplots(2, 1, sharex=True)
     fig.suptitle("Model Loss and Accuracy for Training and Validation")
@@ -450,7 +418,7 @@ def plot_loss_accuracy(train_losses, val_losses, train_accuracies, val_accuracie
     fig.savefig("loss-accuracy.png")
 
 
-def plot_prec_recall_f1(precisions, recalls, f1s):
+def plot_prec_recall_f1(precisions, recalls, f1s, num_epochs):
     sns.set_palette("Set1")
     fig, ax = plt.subplots(3, 1, sharex=True, sharey=True, figsize=(6.4, 6.4))
     fig.suptitle("Model Validation Precision, Recall, and F1 Score")
@@ -482,137 +450,3 @@ def plot_prec_recall_f1(precisions, recalls, f1s):
     plt.subplots_adjust(hspace=0.4, wspace=0.4)
     plt.show()
     fig.savefig("val-metrics.png")
-
-# Generate sample from data
-sample_df = ai_human_df.sample(n=256, random_state=42)
-
-# Create dataset object for iteration
-essay_dataset = EssayDataset(sample_df)
-
-# Set the batch size
-batch_size = 16
-
-# Split data
-split_train, split_test = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
-
-# Create KFold object
-kfold = KFold(n_splits=5, shuffle=True, random_state=42)
-
-# Generate vocab using training data
-vocab = VocabGenerator(essays=split_train[:][0])
-
-# Initialize essay preprocessor
-preprocessor = EssayPreprocessor(vocab)
-
-# Create train and test DataLoaders
-train_dataloader, test_dataloader = get_dataloaders(split_train, split_test, batch_size)
-
-# Define number of epochs and initial learning rate
-num_epochs = 5
-learning_rate = 0.001
-
-# Set model parameters
-vocab_size = vocab.get_vocab_size()
-embed_size = 25
-hidden_size = 2
-num_layers = 1
-
-# Define decision threshold for classification
-threshold = 0.5
-
-# Define lambda_reg for L1 regularization
-l1_lambda = 1e-7
-
-total_accu = None
-
-print("Starting training for cross-validation...")
-
-# Fit model on cross-validation set
-for fold, (train_idx, val_idx) in enumerate(kfold.split(split_train)):
-    print(f"FOLD {fold + 1}:")
-
-    train_loader_cv, val_loader_cv = get_dataloaders(
-        Subset(split_train, train_idx),
-        Subset(split_train, val_idx),
-        batch_size
-    )
-
-    # Initialize model for cross-validation
-    cv_model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
-    cv_model.to(device)
-
-    # Initialize weights for cross entropy loss [weight = (total / (num_per_class * num_classes))]
-    pos_weight = torch.tensor(305797 / 181438).to(device)
-
-    # Initialize loss function and optimizer
-    cv_criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    cv_optimizer = torch.optim.Adam(cv_model.parameters(), lr=learning_rate)
-
-    # Fit the model
-    fit_evaluate(
-        cv_model, train_loader_cv, val_loader_cv, num_epochs, cv_optimizer,
-        criterion=cv_criterion,
-        l1_lambda=l1_lambda,
-        logging=True
-    )
-
-# Initialize the model for non-cross-validation
-lstm_model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
-lstm_model.to(device)
-
-# Initialize weights for cross entropy loss [weight = (total / (num_per_class * num_classes))]
-pos_weight = torch.tensor(305797 / 181438).to(device)
-
-# Initialize loss function and optimizer
-criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-optimizer = torch.optim.Adam(lstm_model.parameters(), lr=learning_rate)
-
-print("Training on full train data...")
-
-# Fit model on non-cross-validated training set
-metrics = fit_evaluate(
-    lstm_model, train_dataloader, test_dataloader, num_epochs, optimizer,
-    criterion=criterion,
-    l1_lambda=l1_lambda,
-    logging=True
-)
-
-# Generate ROC curve for validation data
-true, pred_proba, _ = evaluate(lstm_model, test_dataloader, criterion)
-y_true = torch.cat(true)
-y_pred_proba = torch.cat(pred_proba)
-
-plot_roc_curve(y_true, y_pred_proba)
-
-# Calculate training metrics for plotting
-train_accuracies, train_losses = get_loss_accuracy(metrics["train_metrics"])
-
-# Calculate validation metrics for plotting
-val_accuracies, val_losses = get_loss_accuracy(metrics["val_metrics"])
-val_precisions, val_recalls, val_f1s = get_recall_prec_f1(metrics["val_metrics"])
-
-# Plot accuracy and loss for training and validation
-plot_loss_accuracy(train_losses, val_losses, train_accuracies, val_accuracies)
-
-# Plot precision, recall, and f1 for validation
-plot_prec_recall_f1(val_precisions, val_recalls, val_f1s)
-
-# Save vocabulary
-with open("vocab.pkl", "wb") as f:
-    # noinspection PyTypeChecker
-    pickle.dump(vocab.get_vocab_dictionary(), f)
-
-# Save the model's state dictionary
-torch.save(lstm_model.state_dict(), "ai-text-model.pt")
-
-# Save model parameters
-model_params = {
-    "vocab_size": vocab_size,
-    "embed_size": embed_size,
-    "hidden_size": hidden_size,
-    "num_layers": num_layers
-}
-
-with open("model-params.pkl", "wb") as f:
-    # noinspection PyTypeChecker
-    pickle.dump(model_params, f)

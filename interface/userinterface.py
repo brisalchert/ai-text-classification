@@ -94,7 +94,7 @@ try:
     with open("vocab.pkl", "rb") as f:
         vocab_dict = pickle.load(f)
 except FileNotFoundError:
-    print("Vocabulary file not found; run 'ai-text-classification.py' first to build model.")
+    print("Vocabulary file not found; run 'classification.py' first to build model.")
     sleep(1)
     exit()
 
