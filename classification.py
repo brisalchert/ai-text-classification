@@ -26,7 +26,7 @@ class EssayDataset(Dataset):
     def __getitem__(self, idx):
         return self.essays.iloc[idx], self.labels.iloc[idx]
 
-def create_collate_fn(preprocessor):
+def create_collate_fn(pipeline):
     def collate_batch(batch):
         model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         text_list, label_list = [], []
@@ -34,7 +34,7 @@ def create_collate_fn(preprocessor):
             # Append label (no processing necessary)
             label_list.append(_label)
             # Process and append text
-            processed_text = preprocessor.essay_processing_pipeline(_text)
+            processed_text = pipeline(_text)
             processed_text = torch.tensor(processed_text, dtype=torch.int64)
             text_list.append(processed_text)
         label_list = torch.tensor(label_list, dtype=torch.float)

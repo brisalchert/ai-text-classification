@@ -76,7 +76,7 @@ pred_labels = []
 
 for i in range(len(sample_essays)):
     try:
-        pred_label = torch.sigmoid(predict(sample_essays.iloc[i,0], preprocessor.essay_processing_pipeline)).item()
+        pred_label = torch.sigmoid(predict(sample_essays.iloc[i,0], preprocessor.huggingface_pipeline)).item()
         pred_labels.append(pred_label)
 
         label = sample_essays.iloc[i, 1]
@@ -106,7 +106,7 @@ for i in tqdm(range(len(sample_essays))):
     try:
         true_label = gen_essay_label[sample_essays.iloc[i, 1]]
         pred_label = gen_essay_label[(torch.sigmoid(
-            predict(sample_essays.iloc[i,0],preprocessor.essay_processing_pipeline)
+            predict(sample_essays.iloc[i,0], preprocessor.huggingface_pipeline)
         ) >= threshold).int().item()]
 
         if true_label == pred_label:

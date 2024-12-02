@@ -49,7 +49,7 @@ fig = ax.get_figure()
 fig.savefig("class-distribution.png")
 
 # Generate sample from data
-sample_df = ai_human_df.sample(n=40000, random_state=42)
+sample_df = ai_human_df.sample(n=20000, random_state=42)
 
 # Create dataset object for iteration
 essay_dataset = EssayDataset(sample_df)
@@ -70,15 +70,16 @@ vocab = VocabGenerator(essays=split_train[:][0])
 preprocessor = EssayPreprocessor(vocab)
 
 # Create train and test DataLoaders
-train_dataloader, test_dataloader = get_dataloaders(split_train, split_test, batch_size, preprocessor)
+train_dataloader, test_dataloader = get_dataloaders(split_train, split_test, batch_size,
+                                                    preprocessor.huggingface_pipeline)
 
 # Define number of epochs and initial learning rate
-num_epochs = 5
+num_epochs = 20
 learning_rate = 0.001
 
 # Set model parameters
-vocab_size = vocab.get_vocab_size()
-embed_size = 25
+vocab_size = preprocessor.huggingface_tokenizer.vocab_size
+embed_size = 200
 hidden_size = 2
 num_layers = 1
 
@@ -100,7 +101,7 @@ for fold, (train_idx, val_idx) in enumerate(kfold.split(split_train)):
         Subset(split_train, train_idx),
         Subset(split_train, val_idx),
         batch_size,
-        preprocessor
+        preprocessor.huggingface_pipeline
     )
 
     # Initialize model for cross-validation
