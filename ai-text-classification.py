@@ -401,6 +401,88 @@ def plot_roc_curve(y_true, y_pred_proba):
     plt.ylabel("True Positive Rate")
     plt.show()
 
+
+def plot_loss_accuracy(train_losses, val_losses, train_accuracies, val_accuracies):
+    sns.set_palette("Set1")
+    fig, ax = plt.subplots(2, 1, sharex=True)
+    fig.suptitle("Model Loss and Accuracy for Training and Validation")
+    ax[1].set_ylim(0, 1)
+
+    x_range = [x for x in range(1, num_epochs + 1)]
+    x_ticks = [x for x in x_range if x % 2 == 0]
+
+    ax[0].set_xticks(x_ticks)
+
+    # Prepare loss and accuracy data for multiline plot
+    loss_df = pd.DataFrame({
+        "Epoch": x_range,
+        "Training Loss": train_losses,
+        "Validation Loss": val_losses,
+    })
+
+    acc_df = pd.DataFrame({
+        "Epoch": x_range,
+        "Training Accuracy": train_accuracies,
+        "Validation Accuracy": val_accuracies,
+    })
+
+    # Convert DataFrames from wide to long format (one column for all measurements)
+    loss_df = pd.melt(loss_df, id_vars=["Epoch"])
+    acc_df = pd.melt(acc_df, id_vars=["Epoch"])
+    loss_df.rename(columns={"value": "Loss"}, inplace=True)
+    acc_df.rename(columns={"value": "Accuracy"}, inplace=True)
+
+    # Set up plot for Loss
+    sns.lineplot(ax=ax[0], data=loss_df, y="Loss", x="Epoch", hue="variable")
+    ax[0].set_title("Training and Validation Loss")
+    handles, labels = ax[0].get_legend_handles_labels()
+    ax[0].legend(handles=handles, labels=labels)
+
+    # Set up plot for Accuracy
+    sns.lineplot(ax=ax[1], data=acc_df, y="Accuracy", x="Epoch", hue="variable")
+    ax[1].set_title("Training and Validation Accuracy")
+    handles, labels = ax[1].get_legend_handles_labels()
+    ax[1].legend(handles=handles, labels=labels)
+
+    # Increase spacing between plots and show
+    plt.subplots_adjust(hspace=0.4, wspace=0.4)
+    plt.show()
+    fig.savefig("loss-accuracy.png")
+
+
+def plot_prec_recall_f1(precisions, recalls, f1s):
+    sns.set_palette("Set1")
+    fig, ax = plt.subplots(3, 1, sharex=True, sharey=True, figsize=(6.4, 6.4))
+    fig.suptitle("Model Validation Precision, Recall, and F1 Score")
+
+    x_range = [x for x in range(1, num_epochs + 1)]
+    x_ticks = [x for x in x_range if x % 2 == 0]
+
+    fig.supxlabel("Epoch", fontsize=12)
+    ax[0].set_ylim(0, 1)
+    ax[0].set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+    ax[0].set_xticks(x_ticks)
+
+    # Set up plot for Precision
+    sns.lineplot(ax=ax[0], y=precisions, x=x_range)
+    ax[0].set_title("Validation Precision")
+    ax[0].set_ylabel("Precision")
+
+    # Set up plot for Recall
+    sns.lineplot(ax=ax[1], y=recalls, x=x_range)
+    ax[1].set_title("Validation Recall")
+    ax[1].set_ylabel("Recall")
+
+    # Set up plot for F1 Score
+    sns.lineplot(ax=ax[2], y=f1s, x=x_range)
+    ax[2].set_title("Validation F1")
+    ax[2].set_ylabel("F1 Score")
+
+    # Increase spacing between plots and show
+    plt.subplots_adjust(hspace=0.4, wspace=0.4)
+    plt.show()
+    fig.savefig("val-metrics.png")
+
 # Generate sample from data
 sample_df = ai_human_df.sample(n=256, random_state=42)
 
@@ -510,79 +592,10 @@ val_accuracies, val_losses = get_loss_accuracy(metrics["val_metrics"])
 val_precisions, val_recalls, val_f1s = get_recall_prec_f1(metrics["val_metrics"])
 
 # Plot accuracy and loss for training and validation
-sns.set_palette("Set1")
-fig, ax = plt.subplots(2, 1, sharex=True)
-fig.suptitle("Model Loss and Accuracy for Training and Validation")
-ax[1].set_ylim(0,1)
-
-x_range = [x for x in range(1, num_epochs + 1)]
-x_ticks = [x for x in x_range if x % 2 == 0]
-
-ax[0].set_xticks(x_ticks)
-
-# Prepare loss and accuracy data for multiline plot
-loss_df = pd.DataFrame({
-    "Epoch": x_range,
-    "Training Loss": train_losses,
-    "Validation Loss": val_losses,
-})
-
-acc_df = pd.DataFrame({
-    "Epoch": x_range,
-    "Training Accuracy": train_accuracies,
-    "Validation Accuracy": val_accuracies,
-})
-
-# Convert DataFrames from wide to long format (one column for all measurements)
-loss_df = pd.melt(loss_df, id_vars=["Epoch"])
-acc_df = pd.melt(acc_df, id_vars=["Epoch"])
-loss_df.rename(columns={"value": "Loss"}, inplace=True)
-acc_df.rename(columns={"value": "Accuracy"}, inplace=True)
-
-# Set up plot for Loss
-sns.lineplot(ax=ax[0], data=loss_df, y="Loss", x="Epoch", hue="variable")
-ax[0].set_title("Training and Validation Loss")
-handles, labels = ax[0].get_legend_handles_labels()
-ax[0].legend(handles=handles, labels=labels)
-
-# Set up plot for Accuracy
-sns.lineplot(ax=ax[1], data=acc_df, y="Accuracy", x="Epoch", hue="variable")
-ax[1].set_title("Training and Validation Accuracy")
-handles, labels = ax[1].get_legend_handles_labels()
-ax[1].legend(handles=handles, labels=labels)
-
-# Increase spacing between plots and show
-plt.subplots_adjust(hspace=0.4, wspace=0.4)
-plt.show()
-fig.savefig("loss-accuracy.png")
+plot_loss_accuracy(train_losses, val_losses, train_accuracies, val_accuracies)
 
 # Plot precision, recall, and f1 for validation
-fig, ax = plt.subplots(3, 1, sharex=True, sharey=True, figsize=(6.4, 6.4))
-fig.suptitle("Model Validation Precision, Recall, and F1 Score")
-fig.supxlabel("Epoch", fontsize=12)
-ax[0].set_ylim(0,1)
-ax[0].set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1])
-ax[0].set_xticks(x_ticks)
-
-# Set up plot for Precision
-sns.lineplot(ax=ax[0], y=val_precisions, x=x_range)
-ax[0].set_title("Validation Precision")
-ax[0].set_ylabel("Precision")
-
-# Set up plot for Recall
-sns.lineplot(ax=ax[1], y=val_recalls, x=x_range)
-ax[1].set_title("Validation Recall")
-ax[1].set_ylabel("Recall")
-
-# Set up plot for F1 Score
-sns.lineplot(ax=ax[2], y=val_f1s, x=x_range)
-ax[2].set_title("Validation F1")
-ax[2].set_ylabel("F1 Score")
-
-# Increase spacing between plots and show
-plt.subplots_adjust(hspace=0.4, wspace=0.4)
-plt.show()
-fig.savefig("val-metrics.png")
+plot_prec_recall_f1(val_precisions, val_recalls, val_f1s)
 
 # Save vocabulary
 with open("vocab.pkl", "wb") as f:
