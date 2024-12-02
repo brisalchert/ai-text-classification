@@ -1,7 +1,7 @@
 #-----------------------------------------------------------------------------------------------------------------------
 # AI Text Classification
 #
-# Python script for training a CNN for classifying AI-generated versus human-generated text.
+# Python script for training a machine learning model for classifying AI-generated versus human-generated text.
 #-----------------------------------------------------------------------------------------------------------------------
 
 # Import packages
