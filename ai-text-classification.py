@@ -24,6 +24,9 @@ import pickle
 # Load dataset from csv
 ai_human_df = pd.read_csv("ai_human.csv")
 
+# Set device to CUDA GPU
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 # Fix class label data type
 ai_human_df["generated"] = ai_human_df["generated"].astype(int)
 
@@ -57,10 +60,8 @@ class EssayDataset(Dataset):
     def __getitem__(self, idx):
         return self.essays.iloc[idx], self.labels.iloc[idx]
 
-# Set device to CUDA GPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 def collate_batch(batch):
+    model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     text_list, label_list = [], []
     for _text, _label in batch:
         # Append label (no processing necessary)
@@ -74,7 +75,29 @@ def collate_batch(batch):
     padded_sequences = pad_sequence(text_list, batch_first=True, padding_value=0)
     sequence_lengths = torch.tensor([len(text) for text in text_list])
     # Send tensors to GPU
-    return padded_sequences.to(device), sequence_lengths.to("cpu"), label_list.to(device) # lengths must be on CPU
+    return padded_sequences.to(model_device), sequence_lengths.to("cpu"), label_list.to(model_device) # lengths must be on CPU
+
+def get_dataloaders(training_split, testing_split, batch_size):
+    # Create training DataLoader
+    train_dataloader = DataLoader(
+        training_split,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_batch,
+        generator=torch.Generator().manual_seed(42)
+    )
+
+    # Create testing DataLoader
+    test_dataloader = DataLoader(
+        testing_split,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_batch,
+        generator=torch.Generator().manual_seed(42)
+    )
+
+    # Return DataLoaders
+    return train_dataloader, test_dataloader
 
 def train(model, dataloader, optimizer, threshold=None, lambda_reg=None, epoch=None, loss_criterion=None, logging=False):
     """
@@ -360,14 +383,32 @@ def get_recall_prec_f1(metrics_dict: dict):
     # Return lists
     return recalls, precisions, f1s
 
+def plot_roc_curve(y_true, y_pred_proba):
+    fpr, tpr, thresholds = roc_curve(y_true, y_pred_proba)
+
+    roc_df = pd.DataFrame({"fpr": fpr, "tpr": tpr, "threshold": thresholds})
+    roc_df["cutoff"] = tpr - fpr
+
+    optimal_index = np.argmax(tpr - fpr)
+    optimal_threshold = thresholds[optimal_index]
+    print("Optimal threshold: ", optimal_threshold)
+
+    print(roc_df.sort_values("cutoff", ascending=False))
+
+    plt.plot(fpr, tpr, marker=".")
+    plt.title("ROC Curve for Validation Data")
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.show()
+
 # Generate sample from data
-sample_df = ai_human_df.sample(n=40000, random_state=42)
+sample_df = ai_human_df.sample(n=256, random_state=42)
 
 # Create dataset object for iteration
 essay_dataset = EssayDataset(sample_df)
 
 # Set the batch size
-batch_size = 64
+batch_size = 16
 
 # Split data
 split_train, split_test = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
@@ -382,20 +423,7 @@ vocab = VocabGenerator(essays=split_train[:][0])
 preprocessor = EssayPreprocessor(vocab)
 
 # Create train and test DataLoaders
-train_dataloader = DataLoader(
-    split_train,
-    batch_size=batch_size,
-    shuffle=True,
-    collate_fn=collate_batch,
-    generator=torch.Generator().manual_seed(42)
-)
-test_dataloader = DataLoader(
-    split_test,
-    batch_size=batch_size,
-    shuffle=True,
-    collate_fn=collate_batch,
-    generator=torch.Generator().manual_seed(42)
-)
+train_dataloader, test_dataloader = get_dataloaders(split_train, split_test, batch_size)
 
 # Define number of epochs and initial learning rate
 num_epochs = 5
@@ -421,19 +449,10 @@ print("Starting training for cross-validation...")
 for fold, (train_idx, val_idx) in enumerate(kfold.split(split_train)):
     print(f"FOLD {fold + 1}:")
 
-    train_loader_cv = DataLoader(
-        Subset(essay_dataset, train_idx),
-        batch_size=batch_size,
-        shuffle=True,
-        collate_fn=collate_batch,
-        generator = torch.Generator().manual_seed(42)
-    )
-    val_loader_cv = DataLoader(
-        Subset(essay_dataset, val_idx),
-        batch_size=batch_size,
-        shuffle=True,
-        collate_fn=collate_batch,
-        generator=torch.Generator().manual_seed(42)
+    train_loader_cv, val_loader_cv = get_dataloaders(
+        Subset(split_train, train_idx),
+        Subset(split_train, val_idx),
+        batch_size
     )
 
     # Initialize model for cross-validation
@@ -476,34 +495,12 @@ metrics = fit_evaluate(
     logging=True
 )
 
-# Generate ROC Curve for validation data
-with torch.no_grad():
-    true_labels = []
-    predictions = []
-    for idx, (text, lengths, label) in enumerate(test_dataloader):
-        logits = lstm_model(text, lengths).cpu()
-        y_score = torch.sigmoid(logits).squeeze(-1).tolist()
-        predictions.extend(y_score)
-        true_labels.extend(label.cpu().tolist())
+# Generate ROC curve for validation data
+true, pred_proba, _ = evaluate(lstm_model, test_dataloader, criterion)
+y_true = torch.cat(true)
+y_pred_proba = torch.cat(pred_proba)
 
-    np.array(true_labels)
-    np.array(predictions)
-    fpr, tpr, thresholds = roc_curve(true_labels, predictions)
-
-    roc_df = pd.DataFrame({"fpr": fpr, "tpr": tpr, "threshold": thresholds})
-    roc_df["cutoff"] = tpr - fpr
-
-    optimal_index = np.argmax(tpr - fpr)
-    optimal_threshold = thresholds[optimal_index]
-    print("Optimal threshold: ", optimal_threshold)
-
-    print(roc_df.sort_values("cutoff", ascending=False))
-
-    plt.plot(fpr, tpr, marker=".")
-    plt.title("ROC Curve for Validation Data")
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.show()
+plot_roc_curve(y_true, y_pred_proba)
 
 # Calculate training metrics for plotting
 train_accuracies, train_losses = get_loss_accuracy(metrics["train_metrics"])
