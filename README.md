@@ -10,10 +10,10 @@ The objective of this project is to design a neural network binary classifier th
 
 ## Necessary Files
 
-The dataset used for training and validation can be found at the following link on Kaggle:
+The dataset used for training, validation, and testing can be found at the following link on Kaggle:
 * https://www.kaggle.com/datasets/shanegerami/ai-vs-human-text
 
-The dataset used for testing and feature engineering can be found at the following link on Science Direct:
+The secondary dataset used for generalization testing can be found at the following link on Science Direct:
 * https://www.sciencedirect.com/science/article/pii/S2352340924002117
 
 ---
@@ -37,6 +37,10 @@ The functions for essay preprocessing are mainly contained within `preprocessing
 The `EssayPreprocessor` in `preprocessing.py` similarly performs tokenization, stopword removal, and stemming, and then calls the `map_tokens_to_index` method from the `VocabGenerator` passed to it during initialization to convert essays into lists of indices. These indices allow for the model to create embeddings for each word, which attempt to capture the semantic meaning of each word. Each embedding is an n-dimensional vector of floating point values, where n is chosen during model initialization. The idea is that the vector obtained by subtracting the vectors for "man" and "woman" would return a similar vector as for subtracting "king" and "queen," thereby capturing the semantic difference between these pairs of words.
 
 The model loads individual essays using PyTorch's `DataLoader`, which feeds the model input in batches. The construction of these batches is determined by the `collate_batch` function in `ai-text-classification.py`, which utilizes the essay processing pipeline to create pairs of processed essays and their corresponding labels (0 or 1). For each batch, the processed essays (which are currently lists of integer indices) are padded with zeroes such that each essay has a length equal to the longest essay in the batch. This is necessary for training the model, as all the inputs within a batch must be the same length. The original lengths of each sequence before padding are stored in a separate list. Lastly, the padded sequences, sequence lengths, and label lists are converted to tensors for the model. The padded sequences and label lists are sent to the GPU (as this is where the model will do its training), while the sequence lengths must be kept on the CPU. 
+
+#### Alternative Pipeline
+
+As an alternative option, the `EssayPreprocessor` class includes a pipeline that utilizes a subword tokenizer from HuggingFace. Using this tokenizer does not require initializing a `VocabGenerator` object. Subword tokenization can be more effective at capturing the meanings of longer or more rare words, since it considers the individual pieces of complex words rather than the words themselves. 
 
 #### The LSTM Model
 
@@ -62,6 +66,10 @@ During training, we run each batch of data through the model and propagate losse
 
 Between each epoch of training, the model is tested on a separate validation dataset (the split for which is 80:20). The accuracy, loss, precision, and recall of the model are recorded during validation. Precision quantifies how well the model avoids false positives (where human-written essays are classified as AI-generated), whereas recall quantifies how well the model avoids false negatives (where AI-generated essays are classified as human-written). We also calculate the F1 score for validation, which balances precision and recall scores.
 
+### Cross-Validation
+
+In order to guage whether the model is overfitting or not, it can be useful to compare the model's training metrics to cross-validation metrics. Cross-validation divides the training data into several "folds" and gives each fold a chance to be the validation data. This means that for five folds, the model will be fit five times. Taking the average score for these folds and comparing it to the score obtained from a standard single fit can reveal information about the performance of the model. If the cross-validation score is higher than the single fit score, the model may suffer from high variance (overfitting). On the other hand, if the scores are similar but poor, the model may suffer from high bias (underfitting).
+
 ### Plotting
 
 Once training is complete, plots for training/validation loss and accuracy as well as validation precision, recall, and F1 score are constructed. These plots help with analyzing the performance of the model and can provide insight about how to tune model parameters for better performance.
@@ -75,7 +83,9 @@ One other plot is the receiver operating characteristic (ROC) curve, which plots
 
 ## Testing
 
-With the model complete, we can test its performance using a separate dataset to evaluate how well it learned the important characteristics of AI-generated text that distinguish it from human-written text. At the end of training, the model's vocabulary, state dictionary, and parameters are saved to files for loading during testing. `model-test.py` loads these values and defines a function for predicting the class of new input using the model. The entire testing dataset is passed through the model, yielding a final accuracy value corresponding to the percentage of samples that were correctly classified. The testing accuracy acts as a final evaluation of the model's performance, which helps with determining the effectiveness of attempts to tune the model. We also plot the ROC curve for the testing data to use as another evaluation metric.
+With the model complete, we can test its performance to evaluate how well it learned the important characteristics of AI-generated text that distinguish it from human-written text. The testing split is passed through the model, yielding an ROC score representing the overall performance of the model on unseen data. We also plot the ROC curve to visualize the true positive rate and false positive rate for different decision thresholds.
+
+At the end of the main script, the model's state dictionary and parameters are saved to files for loading during testing. `model-test.py` loads these values and defines a function for predicting the class of new input using the model. The secondary testing dataset is passed through the model, yielding an accuracy value and ROC score for the new data. This testing accuracy acts as a final evaluation of the model's performance, which helps with determining the effectiveness of attempts to tune the model.
 
 ![image](https://github.com/user-attachments/assets/eb015f2b-6cc0-4b5a-8d61-50c88c274bb6)
 
@@ -96,10 +106,12 @@ Improving model performance requires examining the many parameters utilized in c
 
 We can also improve model performance using regularization techniques, such as L1 and L2 regularization. These techniques create additional loss for the model during each training iteration based on the weights of the model's parameters, helping with feature selection or helping to reduce the risk of overfitting to the training data.
 
-Improving model performance by tuning each of these parameters is perhaps the most challenging part of creating a good model, but it is one of the most important steps because it directly influences the final testing accuracy of the model. So far, the model is about 62% accurate on testing data, leaving much room for improvement.
+Improving model performance by tuning each of these parameters is perhaps the most challenging part of creating a good model, but it is one of the most important steps because it directly influences the final testing accuracy of the model. So far, while the model is very accurate on the original dataset, it is only about 62% accurate on the secondary testing data, leaving much room for improvement.
 
 ---
 
 ## Future Steps
 
- It is important to recognize that this classification task may be difficult for this neural network architecture, given the complexity of analyzing the characteristics of AI-generated text. Models that utilize transformer architecture may be better suited to perform this task. Learning the capabilities of this type of model and applying it to this dataset would be a good next step for improving performance.
+It is important to recognize that this classification task may be difficult for this neural network architecture, given the complexity of analyzing the characteristics of AI-generated text. Models that utilize transformer architecture may be better suited to perform this task. Learning the capabilities of this type of model and applying it to this dataset would be a good next step for improving performance.
+
+There is also a possibility that the dataset used for training is not representative of the population of AI-generated responses. This would help to explain the difference in performance between the two datasets. Since the cross-validation scores show that the model does not suffer from extreme overfitting, this may very well be the case.
