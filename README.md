@@ -85,6 +85,8 @@ One other plot is the receiver operating characteristic (ROC) curve, which plots
 
 With the model complete, we can test its performance to evaluate how well it learned the important characteristics of AI-generated text that distinguish it from human-written text. The testing split is passed through the model, yielding an ROC score representing the overall performance of the model on unseen data. We also plot the ROC curve to visualize the true positive rate and false positive rate for different decision thresholds.
 
+![image](https://github.com/user-attachments/assets/32c24d9f-c399-4a98-82e4-a54c248a7df8)
+
 At the end of the main script, the model's state dictionary and parameters are saved to files for loading during testing. `model-test.py` loads these values and defines a function for predicting the class of new input using the model. The secondary testing dataset is passed through the model, yielding an accuracy value and ROC score for the new data. This testing accuracy acts as a final evaluation of the model's performance, which helps with determining the effectiveness of attempts to tune the model.
 
 ![image](https://github.com/user-attachments/assets/eb015f2b-6cc0-4b5a-8d61-50c88c274bb6)
