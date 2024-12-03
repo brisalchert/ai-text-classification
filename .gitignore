@@ -6,6 +6,7 @@ dataset.jsonl
 class-distribution.png
 loss-accuracy.png
 val-metrics.png
+roc-curve.png
 
 # Saved model state dictionary, parameters, and vocab
 ai-text-model.pt

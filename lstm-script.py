@@ -10,10 +10,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
 import torch.nn as nn
+from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import KFold
 from torch.utils.data import random_split, Subset
 from classification import EssayDataset, get_dataloader, fit_evaluate, evaluate, plot_roc_curve, get_loss_accuracy, \
-    get_recall_prec_f1, plot_loss_accuracy, plot_prec_recall_f1
+    get_recall_prec_f1, plot_loss_accuracy, plot_prec_recall_f1, get_roc_auc_score
 from preprocessing import EssayPreprocessor
 from vocab import VocabGenerator
 from essayLSTM import EssayLSTM
@@ -49,7 +50,7 @@ fig = ax.get_figure()
 fig.savefig("class-distribution.png")
 
 # Generate sample from data
-sample_df = ai_human_df.sample(n=20000, random_state=42)
+sample_df = ai_human_df.sample(n=256, random_state=42)
 
 # Create dataset object for iteration
 essay_dataset = EssayDataset(sample_df)
@@ -76,7 +77,7 @@ val_dataloader = get_dataloader(split_val, batch_size, preprocessor.huggingface_
 test_dataloader = get_dataloader(split_test, batch_size, preprocessor.huggingface_pipeline)
 
 # Define number of epochs and initial learning rate
-num_epochs = 20
+num_epochs = 1
 learning_rate = 0.001
 
 # Set model parameters
@@ -96,6 +97,8 @@ total_accu = None
 print("Starting training for cross-validation...")
 
 # Fit model with cross-validation using pre-validation-split training set
+cv_results = []
+
 for fold, (train_idx, val_idx) in enumerate(kfold.split(split_temp)):
     print(f"FOLD {fold + 1}:")
 
@@ -119,7 +122,6 @@ for fold, (train_idx, val_idx) in enumerate(kfold.split(split_temp)):
     num_positive = 0
     for data, _, labels in train_loader_cv:
         num_positive += sum(labels).item()
-    print((len(train_loader_cv) * batch_size - num_positive) / num_positive)
     pos_weight = torch.tensor((len(train_loader_cv) * batch_size - num_positive) / num_positive).to(device)
 
     # Initialize loss function and optimizer
@@ -127,12 +129,12 @@ for fold, (train_idx, val_idx) in enumerate(kfold.split(split_temp)):
     cv_optimizer = torch.optim.Adam(cv_model.parameters(), lr=learning_rate)
 
     # Fit the model
-    fit_evaluate(
+    cv_results.append(fit_evaluate(
         cv_model, train_loader_cv, val_loader_cv, num_epochs, cv_optimizer,
         criterion=cv_criterion,
         l1_lambda=l1_lambda,
         logging=True
-    )
+    ))
 
 # Initialize the model for non-cross-validation
 lstm_model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
@@ -152,17 +154,33 @@ print("Training on full train data...")
 
 # Fit model on non-cross-validated training set
 metrics = fit_evaluate(
-    lstm_model, train_dataloader, test_dataloader, num_epochs, optimizer,
+    lstm_model, train_dataloader, val_dataloader, num_epochs, optimizer,
     criterion=criterion,
     l1_lambda=l1_lambda,
     logging=True
 )
 
-# Generate ROC curve for validation data
+# Compare cross-validation to non-cross-validation using ROC AUC score
+cv_roc_scores = []
+
+for metric in cv_results:
+    roc_scores = get_roc_auc_score(metric["val_metrics"])
+
+    # Append the ROC AUC score from final epoch
+    cv_roc_scores.append(roc_scores[-1])
+
+cv_roc_score = sum(cv_roc_scores) / len(cv_roc_scores)
+roc_score = get_roc_auc_score(metrics["val_metrics"])[-1]
+
+print("\nCV average ROC AUC score: ", cv_roc_score)
+print("Non-CV ROC AUC score: ", roc_score, "\n")
+
+# Generate ROC curve for testing data
 true, pred_proba, _ = evaluate(lstm_model, test_dataloader, criterion)
 y_true = torch.cat(true)
 y_pred_proba = torch.cat(pred_proba)
 
+print("Testing data ROC AUC score", roc_auc_score(y_true, y_pred_proba), "\n")
 plot_roc_curve(y_true, y_pred_proba)
 
 # Calculate training metrics for plotting

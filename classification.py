@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
 import torch.nn as nn
-from sklearn.metrics import roc_curve, accuracy_score, recall_score, precision_score, f1_score
+from sklearn.metrics import roc_curve, accuracy_score, recall_score, precision_score, f1_score, roc_auc_score
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 import time
@@ -90,7 +90,7 @@ def train(model, dataloader, optimizer, threshold=None, lambda_reg=None, epoch=N
     model.train()
 
     # Set log interval for output
-    log_interval = len(dataloader) // 5
+    log_interval = max(len(dataloader) // 5, 1)
     start_time = time.time()
 
     # Prepare batch metric variables
@@ -277,6 +277,19 @@ def fit_evaluate(model, train_loader, val_loader, epochs, optimizer, criterion=N
         "val_metrics": validation_metrics
     }
 
+def get_roc_auc_score(metrics_dict: dict):
+    roc_auc_scores = []
+
+    for epoch in metrics_dict.keys():
+        y_true = torch.cat(metrics_dict[epoch][0])
+        y_pred_proba = torch.cat(metrics_dict[epoch][1])
+
+        # Calculate ROC AUC score for epoch
+        roc_auc_scores.append(roc_auc_score(y_true, y_pred_proba))
+
+    # Return list of ROC AUC scores
+    return roc_auc_scores
+
 def get_loss_accuracy(metrics_dict: dict, threshold):
     accuracies = []
     losses = []
@@ -358,8 +371,9 @@ def plot_roc_curve(y_true, y_pred_proba):
     plt.title("ROC Curve for Validation Data")
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
+    fig = plt.gcf()
+    fig.savefig("roc-curve.png")
     plt.show()
-
 
 def plot_loss_accuracy(train_losses, val_losses, train_accuracies, val_accuracies, num_epochs):
     sns.set_palette("Set1")
