@@ -45,8 +45,8 @@ def create_collate_fn(pipeline):
         return padded_sequences.to(model_device), sequence_lengths.to("cpu"), label_list.to(model_device) # lengths must be on CPU
     return collate_batch
 
-def get_dataloaders(training_split, testing_split, batch_size, preprocessor):
-    # Create training DataLoader
+def get_dataloader(training_split, batch_size, preprocessor):
+    # Create DataLoader
     train_dataloader = DataLoader(
         training_split,
         batch_size=batch_size,
@@ -55,17 +55,8 @@ def get_dataloaders(training_split, testing_split, batch_size, preprocessor):
         generator=torch.Generator().manual_seed(42)
     )
 
-    # Create testing DataLoader
-    test_dataloader = DataLoader(
-        testing_split,
-        batch_size=batch_size,
-        shuffle=True,
-        collate_fn=create_collate_fn(preprocessor),
-        generator=torch.Generator().manual_seed(42)
-    )
-
-    # Return DataLoaders
-    return train_dataloader, test_dataloader
+    # Return DataLoader
+    return train_dataloader
 
 def train(model, dataloader, optimizer, threshold=None, lambda_reg=None, epoch=None, loss_criterion=None, logging=False):
     """

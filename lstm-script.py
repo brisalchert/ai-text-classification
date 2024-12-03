@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 from sklearn.model_selection import KFold
 from torch.utils.data import random_split, Subset
-from classification import EssayDataset, get_dataloaders, fit_evaluate, evaluate, plot_roc_curve, get_loss_accuracy, \
+from classification import EssayDataset, get_dataloader, fit_evaluate, evaluate, plot_roc_curve, get_loss_accuracy, \
     get_recall_prec_f1, plot_loss_accuracy, plot_prec_recall_f1
 from preprocessing import EssayPreprocessor
 from vocab import VocabGenerator
@@ -58,9 +58,10 @@ essay_dataset = EssayDataset(sample_df)
 batch_size = 64
 
 # Split data
-split_train, split_test = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
+split_temp, split_test = random_split(essay_dataset, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
+split_train, split_val = random_split(split_temp, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
 
-# Create KFold object
+# Create KFold object for cross-validation
 kfold = KFold(n_splits=5, shuffle=True, random_state=42)
 
 # Generate vocab using training data
@@ -69,9 +70,10 @@ vocab = VocabGenerator(essays=split_train[:][0])
 # Initialize essay preprocessor
 preprocessor = EssayPreprocessor(vocab)
 
-# Create train and test DataLoaders
-train_dataloader, test_dataloader = get_dataloaders(split_train, split_test, batch_size,
-                                                    preprocessor.huggingface_pipeline)
+# Create train, validation, and test DataLoaders
+train_dataloader = get_dataloader(split_train, batch_size, preprocessor.huggingface_pipeline)
+val_dataloader = get_dataloader(split_val, batch_size, preprocessor.huggingface_pipeline)
+test_dataloader = get_dataloader(split_test, batch_size, preprocessor.huggingface_pipeline)
 
 # Define number of epochs and initial learning rate
 num_epochs = 20
@@ -93,13 +95,18 @@ total_accu = None
 
 print("Starting training for cross-validation...")
 
-# Fit model on cross-validation set
-for fold, (train_idx, val_idx) in enumerate(kfold.split(split_train)):
+# Fit model with cross-validation using pre-validation-split training set
+for fold, (train_idx, val_idx) in enumerate(kfold.split(split_temp)):
     print(f"FOLD {fold + 1}:")
 
-    train_loader_cv, val_loader_cv = get_dataloaders(
-        Subset(split_train, train_idx),
-        Subset(split_train, val_idx),
+    train_loader_cv = get_dataloader(
+        Subset(split_temp, train_idx),
+        batch_size,
+        preprocessor.huggingface_pipeline
+    )
+
+    val_loader_cv = get_dataloader(
+        Subset(split_temp, val_idx),
         batch_size,
         preprocessor.huggingface_pipeline
     )
@@ -108,8 +115,12 @@ for fold, (train_idx, val_idx) in enumerate(kfold.split(split_train)):
     cv_model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
     cv_model.to(device)
 
-    # Initialize weights for cross entropy loss [weight = (total / (num_per_class * num_classes))]
-    pos_weight = torch.tensor(305797 / 181438).to(device)
+    # Initialize positive class weight for cross entropy loss [weight = (num_negative / num_positive)]
+    num_positive = 0
+    for data, _, labels in train_loader_cv:
+        num_positive += sum(labels).item()
+    print((len(train_loader_cv) * batch_size - num_positive) / num_positive)
+    pos_weight = torch.tensor((len(train_loader_cv) * batch_size - num_positive) / num_positive).to(device)
 
     # Initialize loss function and optimizer
     cv_criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
@@ -127,8 +138,11 @@ for fold, (train_idx, val_idx) in enumerate(kfold.split(split_train)):
 lstm_model = EssayLSTM(vocab_size, embed_size, hidden_size, num_layers, device)
 lstm_model.to(device)
 
-# Initialize weights for cross entropy loss [weight = (total / (num_per_class * num_classes))]
-pos_weight = torch.tensor(305797 / 181438).to(device)
+# Initialize positive class weight for cross entropy loss [weight = (num_negative / num_positive)]
+num_positive = 0
+for data, _, labels in train_dataloader:
+    num_positive += sum(labels).item()
+pos_weight = torch.tensor((len(train_dataloader) * batch_size - num_positive) / num_positive).to(device)
 
 # Initialize loss function and optimizer
 criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
