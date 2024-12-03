@@ -49,7 +49,7 @@ fig = ax.get_figure()
 fig.savefig("class-distribution.png")
 
 # Generate sample from data
-sample_df = ai_human_df.sample(n=256, random_state=42)
+sample_df = ai_human_df.sample(n=51200, random_state=42)
 
 # Create dataset object for iteration
 essay_dataset = EssayDataset(sample_df)
@@ -73,7 +73,7 @@ val_dataloader = get_dataloader(split_val, batch_size, preprocessor.huggingface_
 test_dataloader = get_dataloader(split_test, batch_size, preprocessor.huggingface_pipeline)
 
 # Define number of epochs and initial learning rate
-num_epochs = 1
+num_epochs = 15
 learning_rate = 0.001
 
 # Set model parameters
