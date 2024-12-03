@@ -16,7 +16,6 @@ from torch.utils.data import random_split, Subset
 from classification import EssayDataset, get_dataloader, fit_evaluate, evaluate, plot_roc_curve, get_loss_accuracy, \
     get_recall_prec_f1, plot_loss_accuracy, plot_prec_recall_f1, get_roc_auc_score
 from preprocessing import EssayPreprocessor
-from vocab import VocabGenerator
 from essayLSTM import EssayLSTM
 import pickle
 
@@ -65,11 +64,8 @@ split_train, split_val = random_split(split_temp, [0.8, 0.2], generator=torch.Ge
 # Create KFold object for cross-validation
 kfold = KFold(n_splits=5, shuffle=True, random_state=42)
 
-# Generate vocab using training data
-vocab = VocabGenerator(essays=split_train[:][0])
-
 # Initialize essay preprocessor
-preprocessor = EssayPreprocessor(vocab)
+preprocessor = EssayPreprocessor()
 
 # Create train, validation, and test DataLoaders
 train_dataloader = get_dataloader(split_train, batch_size, preprocessor.huggingface_pipeline)
@@ -195,11 +191,6 @@ plot_loss_accuracy(train_losses, val_losses, train_accuracies, val_accuracies, n
 
 # Plot precision, recall, and f1 for validation
 plot_prec_recall_f1(val_precisions, val_recalls, val_f1s, num_epochs)
-
-# Save vocabulary
-with open("vocab.pkl", "wb") as f:
-    # noinspection PyTypeChecker
-    pickle.dump(vocab.get_vocab_dictionary(), f)
 
 # Save the model's state dictionary
 torch.save(lstm_model.state_dict(), "ai-text-model.pt")

@@ -7,7 +7,6 @@ from sklearn.metrics import roc_curve, roc_auc_score
 from tqdm import tqdm
 from essayLSTM import EssayLSTM
 from preprocessing import EssayPreprocessor
-from vocab import VocabGenerator
 
 # Load dataset
 ai_human_df = pd.read_json("dataset.jsonl", lines=True)
@@ -20,14 +19,8 @@ print(ai_human_df.head())
 print(ai_human_df.describe())
 print(ai_human_df.info())
 
-# Load vocabulary
-with open("vocab.pkl", "rb") as f:
-    vocab_dict = pickle.load(f)
-
-vocab = VocabGenerator(vocab=vocab_dict)
-
 # Initialize essay preprocessor
-preprocessor = EssayPreprocessor(vocab)
+preprocessor = EssayPreprocessor()
 
 # Load model parameters
 with open("model-params.pkl", "rb") as f:

@@ -3,13 +3,15 @@ from nltk.stem import WordNetLemmatizer
 import nltk
 from nltk.corpus import stopwords
 from transformers import AutoTokenizer
-nltk.download("stopwords")
-nltk.download("wordnet")
 
 class EssayPreprocessor:
-    def __init__(self, vocab):
+    def __init__(self, vocab=None):
         self.tokenizer = get_tokenizer()
         self.vocab = vocab
+        # Only download nltk packages if necessary
+        if vocab is not None:
+            nltk.download("stopwords")
+            nltk.download("wordnet")
         self.lemma = WordNetLemmatizer()
         self.stop_words = set(stopwords.words("english"))
         self.huggingface_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
@@ -24,6 +26,8 @@ class EssayPreprocessor:
         return tokens
 
     def essay_processing_pipeline(self, essay):
+        if self.vocab is None:
+            raise NameError("Preprocessor must be initialized with a vocab to use this function")
         # Generate tokens
         tokens = self.generate_tokens(essay)
         # Map tokens to indices for embedding
