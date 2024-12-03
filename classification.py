@@ -368,7 +368,7 @@ def plot_roc_curve(y_true, y_pred_proba):
     print(roc_df.sort_values("cutoff", ascending=False))
 
     plt.plot(fpr, tpr, marker=".")
-    plt.title("ROC Curve for Validation Data")
+    plt.title("ROC Curve for Testing Data")
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
     fig = plt.gcf()
