@@ -281,8 +281,8 @@ def get_roc_auc_score(metrics_dict: dict):
     roc_auc_scores = []
 
     for epoch in metrics_dict.keys():
-        y_true = torch.cat(metrics_dict[epoch][0])
-        y_pred_proba = torch.cat(metrics_dict[epoch][1])
+        y_true = torch.cat(metrics_dict[epoch][0]).cpu()
+        y_pred_proba = torch.cat(metrics_dict[epoch][1]).cpu()
 
         # Calculate ROC AUC score for epoch
         roc_auc_scores.append(roc_auc_score(y_true, y_pred_proba))

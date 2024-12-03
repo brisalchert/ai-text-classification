@@ -173,8 +173,8 @@ print("Non-CV ROC AUC score: ", roc_score, "\n")
 
 # Generate ROC curve for testing data
 true, pred_proba, _ = evaluate(lstm_model, test_dataloader, criterion)
-y_true = torch.cat(true)
-y_pred_proba = torch.cat(pred_proba)
+y_true = torch.cat(true).cpu()
+y_pred_proba = torch.cat(pred_proba).cpu()
 
 print("Testing data ROC AUC score", roc_auc_score(y_true, y_pred_proba), "\n")
 plot_roc_curve(y_true, y_pred_proba)
