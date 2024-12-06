@@ -1,12 +1,10 @@
 import pickle
-from time import sleep
 import torch
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import *
 from essayLSTM import EssayLSTM
 from preprocessing import EssayPreprocessor
-from vocab import VocabGenerator
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -82,26 +80,15 @@ class MainWindow(QMainWindow):
         labels = {0: "Human-written", 1: "AI-generated"}
         text = self.input_textbox.toPlainText()
         try:
-            result, confidence = predict(text, preprocessor.essay_processing_pipeline, threshold)
+            result, confidence = predict(text, preprocessor.huggingface_pipeline, threshold)
             self.output.setText((labels[result] + ". Confidence: " + str(confidence) + "%"))
         except ValueError:
             error_dialog = QErrorMessage(self)
             error_dialog.setWindowTitle("Error")
             error_dialog.showMessage("Error: Invalid input for model.")
 
-# Load vocabulary
-try:
-    with open("vocab.pkl", "rb") as f:
-        vocab_dict = pickle.load(f)
-except FileNotFoundError:
-    print("Vocabulary file not found; run 'classification.py' first to build model.")
-    sleep(1)
-    exit()
-
-vocab = VocabGenerator(vocab=vocab_dict)
-
 # Initialize essay preprocessor
-preprocessor = EssayPreprocessor(vocab)
+preprocessor = EssayPreprocessor()
 
 # Load model parameters
 with open("model-params.pkl", "rb") as f:
@@ -113,7 +100,7 @@ hidden_size = model_params["hidden_size"]
 num_layers = model_params["num_layers"]
 
 # Define prediction threshold
-threshold = 0.981974
+threshold = 0.5
 
 # Set device to CPU
 device = "cpu"
